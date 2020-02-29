@@ -49,10 +49,11 @@ c0 07                   : 1984
 ```
 
 ## TODO
-- error handling
-- better extensibility
-- performance
-- more tests
+- better extensibility?
+- performance?
+- more tests?
+- comments?
+- docs?
 
 ## Credits
 - structured binding code originally taken from [avakar/destructure](https://github.com/avakar/destructure)
