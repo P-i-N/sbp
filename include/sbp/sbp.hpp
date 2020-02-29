@@ -82,6 +82,20 @@ public:
 		return (_readPos <= _writePos) ? *reinterpret_cast<const T*>(_data + _readPos - sizeof(T)) : T(0);
 	}
 
+	template <typename RT, typename T>
+	error read(T& result) noexcept
+	{
+		if constexpr (sizeof(T) < sizeof(RT))
+			return error::corrupted_data;
+
+		if (_readPos + sizeof(RT) > _writePos)
+			return error::unexpected_end;
+
+		result = static_cast<T>(*reinterpret_cast<const RT*>(_data + _readPos));
+		_readPos += sizeof(RT);
+		return error::none;
+	}
+
 private:
 	static constexpr size_t stack_buffer_capacity = 256;
 
@@ -115,7 +129,7 @@ template <typename T, size_t N>
 constexpr bool has_n_members_v = has_n_members<T, std::make_index_sequence<N>>::value;
 
 template <typename T>
-auto destructure(T& t)
+auto destructure(T& t) noexcept
 {
 #define _SBP_TIE(_Count, ...) \
 	else if constexpr (has_n_members_v<T, _Count>) { \
@@ -259,10 +273,10 @@ void write_map(buffer& b, const T& value) noexcept
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename K, typename T, typename P, typename A>
-void write(buffer& b, const std::map<K, T, P, A>& value) { write_map(b, value); }
+void write(buffer& b, const std::map<K, T, P, A>& value) noexcept { write_map(b, value); }
 
 template <typename K, typename T, typename H, typename EQ, typename A>
-void write(buffer& b, const std::unordered_map<K, T, H, EQ, A>& value) { write_map(b, value); }
+void write(buffer& b, const std::unordered_map<K, T, H, EQ, A>& value) noexcept { write_map(b, value); }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <size_t I = 0, typename... Types>
@@ -287,23 +301,24 @@ template <typename T>
 error read_int(buffer& b, T& value) noexcept
 {
 	if (auto header = b.read<uint8_t>(); (header & 0b10000000u) == 0)
+	{
 		value = static_cast<T>(header);
+		return b.valid();
+	}
 	else if ((header & 0b11100000u) == 0b11100000u)
 	{
 		// TODO: Convert this properly
 	}
 	else if (header == 0xd0u)
-		value = static_cast<T>(b.read<int8_t>());
+		return b.read<int8_t>(value);
 	else if (header == 0xd1u)
-		value = static_cast<T>(b.read<int16_t>());
+		return b.read<int16_t>(value);
 	else if (header == 0xd2u)
-		value = static_cast<T>(b.read<int32_t>());
+		return b.read<int32_t>(value);
 	else if (header == 0xd3u)
-		value = static_cast<T>(b.read<int64_t>());
-	else
-		return error::corrupted_data;
+		return b.read<int64_t>(value);
 
-	return b.valid();
+	return error::corrupted_data;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -317,34 +332,20 @@ template <typename T>
 error read_uint(buffer& b, T& value) noexcept
 {
 	if (auto header = b.read<uint8_t>(); (header & 0b10000000u) == 0)
+	{
 		value = header;
+		return b.valid();
+	}
 	else if (header == 0xccu)
-		value = b.read<uint8_t>();
+		return b.read<uint8_t>(value);
 	else if (header == 0xcdu)
-	{
-		if (sizeof(T) < 2)
-			return error::corrupted_data;
-
-		value = static_cast<T>(b.read<uint16_t>());
-	}
+		return b.read<uint16_t>(value);
 	else if (header == 0xceu)
-	{
-		if (sizeof(T) < 4)
-			return error::corrupted_data;
-
-		value = static_cast<T>(b.read<uint32_t>());
-	}
+		return b.read<uint32_t>(value);
 	else if (header == 0xcfu)
-	{
-		if (sizeof(T) < 8)
-			return error::corrupted_data;
+		return b.read<uint64_t>(value);
 
-		value = static_cast<T>(b.read<uint64_t>());
-	}
-	else
-		return error::corrupted_data;
-
-	return b.valid();
+	return error::corrupted_data;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -380,8 +381,7 @@ error read(buffer& b, float& value) noexcept
 	if (b.read<uint8_t>() != 0xcau)
 		return error::corrupted_data;
 
-	value = b.read<float>();
-	return b.valid();
+	return b.read<float>(value);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -390,8 +390,7 @@ error read(buffer& b, double& value) noexcept
 	if (b.read<uint8_t>() != 0xcbu)
 		return error::corrupted_data;
 
-	value = b.read<double>();
-	return b.valid();
+	return b.read<double>(value);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -410,15 +409,16 @@ error read(buffer& b, bool& value) noexcept
 error read_array_length(buffer& b, size_t& value) noexcept
 {
 	if (auto header = b.read<uint8_t>(); (header & 0b11110000u) == 0b10010000u)
+	{
 		value = header & 0b00001111u;
+		return error::none;
+	}
 	else if (header == 0xdcu)
-		value = b.read<uint16_t>();
+		return b.read<uint16_t>(value);
 	else if (header == 0xddu)
-		value = b.read<uint32_t>();
-	else
-		return error::corrupted_data;
-	
-	return b.valid();
+		return b.read<uint32_t>(value);
+
+	return error::corrupted_data;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -444,15 +444,16 @@ error read(buffer& b, std::vector<T, A>& value) noexcept
 error read_map_length(buffer& b, size_t& value) noexcept
 {
 	if (auto header = b.read<uint8_t>(); (header & 0b11110000u) == 0b10000000u)
+	{
 		value = header & 0b00001111u;
+		return error::none;
+	}
 	else if (header == 0xdeu)
-		value = b.read<uint16_t>();
+		return b.read<uint16_t>(value);
 	else if (header == 0xdfu)
-		value = b.read<uint32_t>();
-	else
-		return error::corrupted_data;
+		return b.read<uint32_t>(value);
 
-	return b.valid();
+	return error::corrupted_data;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -482,14 +483,14 @@ error read_map(buffer& b, T& value) noexcept
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename K, typename T, typename P, typename A>
-error read(buffer& b, std::map<K, T, P, A>& value)
+error read(buffer& b, std::map<K, T, P, A>& value) noexcept
 {
 	return read_map(b, value);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename K, typename T, typename H, typename EQ, typename A>
-error read(buffer& b, std::unordered_map<K, T, H, EQ, A>& value)
+error read(buffer& b, std::unordered_map<K, T, H, EQ, A>& value) noexcept
 {
 	return read_map(b, value);
 }

@@ -87,9 +87,11 @@ int main(int argc, char* argv[])
 
 		// Serialize it into a buffer
 		sbp::buffer buff;
-		sbp::write(buff, ud);
 
-		PrintBuffer(buff);
+		for (size_t i = 0; i < 1000000; ++i)
+			sbp::write(buff, ud);
+
+		//PrintBuffer(buff);
 	}
 
 	return 0;
