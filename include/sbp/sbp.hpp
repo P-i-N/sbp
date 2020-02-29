@@ -19,6 +19,8 @@ enum class error
 	unexpected_end
 };
 
+constexpr auto operator!(error err) { return err == error::none; }
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 class buffer final
@@ -33,7 +35,7 @@ public:
 
 	size_t size() const noexcept { return _writePos; }
 
-	bool valid() const noexcept { return _readPos <= _writePos; }
+	error valid() const noexcept { return (_readPos <= _writePos) ? error::none : error::unexpected_end; }
 
 	void reset() noexcept
 	{
@@ -282,7 +284,7 @@ void write(buffer& b, const std::tuple<Types...>& t) noexcept
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
-bool read_int(buffer& b, T& value) noexcept
+error read_int(buffer& b, T& value) noexcept
 {
 	if (auto header = b.read<uint8_t>(); (header & 0b10000000u) == 0)
 		value = static_cast<T>(header);
@@ -299,20 +301,20 @@ bool read_int(buffer& b, T& value) noexcept
 	else if (header == 0xd3u)
 		value = static_cast<T>(b.read<int64_t>());
 	else
-		return false;
+		return error::corrupted_data;
 
 	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-bool read(buffer& b, int8_t&  value) noexcept { return read_int(b, value); }
-bool read(buffer& b, int16_t& value) noexcept { return read_int(b, value); }
-bool read(buffer& b, int32_t& value) noexcept { return read_int(b, value); }
-bool read(buffer& b, int64_t& value) noexcept { return read_int(b, value); }
+error read(buffer& b, int8_t&  value) noexcept { return read_int(b, value); }
+error read(buffer& b, int16_t& value) noexcept { return read_int(b, value); }
+error read(buffer& b, int32_t& value) noexcept { return read_int(b, value); }
+error read(buffer& b, int64_t& value) noexcept { return read_int(b, value); }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
-bool read_uint(buffer& b, T& value) noexcept
+error read_uint(buffer& b, T& value) noexcept
 {
 	if (auto header = b.read<uint8_t>(); (header & 0b10000000u) == 0)
 		value = header;
@@ -321,38 +323,38 @@ bool read_uint(buffer& b, T& value) noexcept
 	else if (header == 0xcdu)
 	{
 		if (sizeof(T) < 2)
-			return false;
+			return error::corrupted_data;
 
 		value = static_cast<T>(b.read<uint16_t>());
 	}
 	else if (header == 0xceu)
 	{
 		if (sizeof(T) < 4)
-			return false;
+			return error::corrupted_data;
 
 		value = static_cast<T>(b.read<uint32_t>());
 	}
 	else if (header == 0xcfu)
 	{
 		if (sizeof(T) < 8)
-			return false;
+			return error::corrupted_data;
 
 		value = static_cast<T>(b.read<uint64_t>());
 	}
 	else
-		return false;
+		return error::corrupted_data;
 
 	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-bool read(buffer& b, uint8_t&  value) noexcept { return read_uint(b, value); }
-bool read(buffer& b, uint16_t& value) noexcept { return read_uint(b, value); }
-bool read(buffer& b, uint32_t& value) noexcept { return read_uint(b, value); }
-bool read(buffer& b, uint64_t& value) noexcept { return read_uint(b, value); }
+error read(buffer& b, uint8_t&  value) noexcept { return read_uint(b, value); }
+error read(buffer& b, uint16_t& value) noexcept { return read_uint(b, value); }
+error read(buffer& b, uint32_t& value) noexcept { return read_uint(b, value); }
+error read(buffer& b, uint64_t& value) noexcept { return read_uint(b, value); }
 
 //---------------------------------------------------------------------------------------------------------------------
-bool read(buffer& b, std::string& value) noexcept
+error read(buffer& b, std::string& value) noexcept
 {
 	size_t length = 0;
 
@@ -365,7 +367,7 @@ bool read(buffer& b, std::string& value) noexcept
 	else if (header == 0xdbu)
 		length = b.read<uint32_t>();
 	else
-		return false;
+		return error::corrupted_data;
 
 	value.resize(length);
 	b.read(value.data(), length);
@@ -373,39 +375,39 @@ bool read(buffer& b, std::string& value) noexcept
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-bool read(buffer& b, float& value) noexcept
+error read(buffer& b, float& value) noexcept
 {
 	if (b.read<uint8_t>() != 0xcau)
-		return false;
+		return error::corrupted_data;
 
 	value = b.read<float>();
 	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-bool read(buffer& b, double& value) noexcept
+error read(buffer& b, double& value) noexcept
 {
 	if (b.read<uint8_t>() != 0xcbu)
-		return false;
+		return error::corrupted_data;
 
 	value = b.read<double>();
 	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-bool read(buffer& b, bool& value) noexcept
+error read(buffer& b, bool& value) noexcept
 {
 	if (auto header = b.read<uint8_t>(); header == 0xc2u || header == 0xc3u)
 	{
 		value = (header == 0xc3u);
-		return true;
+		return error::none;
 	}
 
-	return false;
+	return error::corrupted_data;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-bool read_array_length(buffer& b, size_t& value) noexcept
+error read_array_length(buffer& b, size_t& value) noexcept
 {
 	if (auto header = b.read<uint8_t>(); (header & 0b11110000u) == 0b10010000u)
 		value = header & 0b00001111u;
@@ -414,32 +416,32 @@ bool read_array_length(buffer& b, size_t& value) noexcept
 	else if (header == 0xddu)
 		value = b.read<uint32_t>();
 	else
-		return false;
+		return error::corrupted_data;
 	
 	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T, typename A>
-bool read(buffer& b, std::vector<T, A>& value) noexcept
+error read(buffer& b, std::vector<T, A>& value) noexcept
 {
 	size_t numValues = 0;
-	if (auto result = read_array_length(b, numValues); result != true)
-		return result;
+	if (auto err = read_array_length(b, numValues); !!err)
+		return err;
 
 	value.clear();
 	value.reserve(value.size() + numValues);
 	for (size_t i = 0; i < numValues; ++i)
 	{
-		if (!read(b, value.emplace_back()))
-			return false;
+		if (auto err = read(b, value.emplace_back()); !!err)
+			return err;
 	}
 
 	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-bool read_map_length(buffer& b, size_t& value) noexcept
+error read_map_length(buffer& b, size_t& value) noexcept
 {
 	if (auto header = b.read<uint8_t>(); (header & 0b11110000u) == 0b10000000u)
 		value = header & 0b00001111u;
@@ -448,29 +450,29 @@ bool read_map_length(buffer& b, size_t& value) noexcept
 	else if (header == 0xdfu)
 		value = b.read<uint32_t>();
 	else
-		return false;
+		return error::corrupted_data;
 
 	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
-bool read_map(buffer& b, T& value) noexcept
+error read_map(buffer& b, T& value) noexcept
 {
 	size_t numValues = 0;
-	if (auto result = read_map_length(b, numValues); result != true)
-		return result;
+	if (auto err = read_map_length(b, numValues); !!err)
+		return err;
 
 	std::pair<typename T::key_type, typename T::mapped_type> kvp;
 
 	value.clear();
 	for (size_t i = 0; i < numValues; ++i)
 	{
-		if (!read(b, kvp.first))
-			return false;
+		if (auto err = read(b, kvp.first); !!err)
+			return err;
 
-		if (!read(b, kvp.second))
-			return false;
+		if (auto err = read(b, kvp.second); !!err)
+			return err;
 
 		value.emplace(std::move(kvp));
 	}
@@ -480,21 +482,21 @@ bool read_map(buffer& b, T& value) noexcept
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename K, typename T, typename P, typename A>
-bool read(buffer& b, std::map<K, T, P, A>& value)
+error read(buffer& b, std::map<K, T, P, A>& value)
 {
 	return read_map(b, value);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename K, typename T, typename H, typename EQ, typename A>
-bool read(buffer& b, std::unordered_map<K, T, H, EQ, A>& value)
+error read(buffer& b, std::unordered_map<K, T, H, EQ, A>& value)
 {
 	return read_map(b, value);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <size_t I = 0, typename... Types>
-bool read(buffer& b, std::tuple<Types...>& t) noexcept
+error read(buffer& b, std::tuple<Types...>& t) noexcept
 {
 	auto& value = std::get<I>(t);
 	using Type = std::decay_t<decltype(value)>;
@@ -502,21 +504,21 @@ bool read(buffer& b, std::tuple<Types...>& t) noexcept
 	if constexpr (std::is_enum_v<Type>)
 	{
 		auto underlyingType = std::underlying_type_t<Type>(0);
-		if (!read(b, underlyingType))
-			return false;
+		if (auto err = read(b, underlyingType); !!err)
+			return err;
 
 		value = static_cast<Type>(underlyingType);
 	}
 	else
 	{
-		if (!read(b, value))
-			return false;
+		if (auto err = read(b, value); !!err)
+			return err;
 	}
 
 	if constexpr (I + 1 != sizeof...(Types))
 	{
-		if (!read<I + 1>(b, t))
-			return false;
+		if (auto err = read<I + 1>(b, t); !!err)
+			return err;
 	}
 
 	return b.valid();
@@ -535,15 +537,15 @@ void write(buffer& b, const T& msg) noexcept
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
-bool read(buffer& b, T& msg) noexcept
+error read(buffer& b, T& msg) noexcept
 {
-	if (!detail::read(b, detail::destructure(msg)))
+	if (auto err = detail::read(b, detail::destructure(msg)); !!err)
 	{
 		// TODO: Return proper reason
-		return false;
+		return err;
 	}
 
-	return true;
+	return error::none;
 }
 
 } // namespace sbp
