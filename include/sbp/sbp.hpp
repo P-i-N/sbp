@@ -6,15 +6,25 @@
 #include <tuple>
 #include <typeinfo>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace sbp {
 
+enum class error
+{
+	none = 0,
+	corrupted_data,
+	unexpected_end
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 class buffer final
 {
 public:
-	buffer() noexcept = default;
+	buffer() noexcept { _data = _stackBuffer; }
 
 	~buffer() { reset(); }
 
@@ -23,7 +33,7 @@ public:
 
 	size_t size() const noexcept { return _writePos; }
 
-	bool valid() const noexcept { return _readPos < _writePos; }
+	bool valid() const noexcept { return _readPos <= _writePos; }
 
 	void reset() noexcept
 	{
@@ -35,12 +45,11 @@ public:
 		_writePos = _readPos = 0;
 	}
 
-	void write(const void* data, size_t numBytes) noexcept
+	buffer& write(const void* data, size_t numBytes) noexcept
 	{
 		if ((_writePos += numBytes) >= _capacity)
 		{
-			_capacity *= 2;
-			auto* newData = new uint8_t[_capacity];
+			auto* newData = new uint8_t[_capacity *= 2];
 			memcpy(newData, _data, _writePos - numBytes);
 
 			if (_data != _stackBuffer)
@@ -50,10 +59,11 @@ public:
 		}
 
 		memcpy(_data + _writePos - numBytes, data, numBytes);
+		return *this;
 	}
 
 	template <typename T>
-	void write(T value) noexcept { write(&value, sizeof(T)); }
+	buffer& write(T value) noexcept { return write(&value, sizeof(T)); }
 	
 	void read(void* data, size_t numBytes) noexcept
 	{
@@ -73,11 +83,11 @@ public:
 private:
 	static constexpr size_t stack_buffer_capacity = 256;
 
-	uint8_t _stackBuffer[stack_buffer_capacity] = { };
-	uint8_t* _data = _stackBuffer;
-	size_t _capacity = stack_buffer_capacity;
 	size_t _writePos = 0;
 	size_t _readPos = 0;
+	uint8_t* _data = nullptr;
+	size_t _capacity = stack_buffer_capacity;
+	uint8_t _stackBuffer[stack_buffer_capacity] = { };
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -142,25 +152,13 @@ void write_int(buffer& b, int64_t value) noexcept
 	else if (value < 0 && value >= -32)
 		b.write(static_cast<int8_t>(value));
 	else if (value <= nl<int8_t>::max() && value >= nl<int8_t>::min())
-	{
-		b.write(uint8_t(0xd0u));
-		b.write(int8_t(value));
-	}
+		b.write(uint8_t(0xd0u)).write(int8_t(value));
 	else if (value <= nl<int16_t>::max() && value >= nl<int16_t>::min())
-	{
-		b.write(uint8_t(0xd1u));
-		b.write(int16_t(value));
-	}
+		b.write(uint8_t(0xd1u)).write(int16_t(value));
 	else if (value <= nl<int32_t>::max() && value >= nl<int32_t>::min())
-	{
-		b.write(uint8_t(0xd2u));
-		b.write(int32_t(value));
-	}
+		b.write(uint8_t(0xd2u)).write(int32_t(value));
 	else
-	{
-		b.write(uint8_t(0xd3u));
-		b.write(value);
-	}
+		b.write(uint8_t(0xd3u)).write(value);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -175,25 +173,13 @@ void write_uint(buffer& b, uint64_t value) noexcept
 	if (value <= nl<int8_t>::max())
 		b.write(static_cast<uint8_t>(value));
 	else if (value <= nl<uint8_t>::max())
-	{
-		b.write(uint8_t(0xccu));
-		b.write(static_cast<uint8_t>(value));
-	}
+		b.write(uint8_t(0xccu)).write(static_cast<uint8_t>(value));
 	else if (value <= nl<uint16_t>::max())
-	{
-		b.write(uint8_t(0xcdu));
-		b.write(static_cast<uint16_t>(value));
-	}
+		b.write(uint8_t(0xcdu)).write(static_cast<uint16_t>(value));
 	else if (value <= nl<uint32_t>::max())
-	{
-		b.write(uint8_t(0xceu));
-		b.write(static_cast<uint32_t>(value));
-	}
+		b.write(uint8_t(0xceu)).write(static_cast<uint32_t>(value));
 	else
-	{
-		b.write(uint8_t(0xcfu));
-		b.write(value);
-	}
+		b.write(uint8_t(0xcfu)).write(value);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -208,20 +194,11 @@ void write_str(buffer& b, const char* value, size_t length) noexcept
 	if (length <= 31)
 		b.write(uint8_t(uint8_t(0b10100000u) | static_cast<uint8_t>(length)));
 	else if (length <= nl<uint8_t>::max())
-	{
-		b.write(uint8_t(0xd9u));
-		b.write(static_cast<uint8_t>(length));
-	}
+		b.write(uint8_t(0xd9u)).write(static_cast<uint8_t>(length));
 	else if (length <= nl<uint16_t>::max())
-	{
-		b.write(uint8_t(0xdau));
-		b.write(static_cast<uint16_t>(length));
-	}
+		b.write(uint8_t(0xdau)).write(static_cast<uint16_t>(length));
 	else
-	{
-		b.write(uint8_t(0xdbu));
-		b.write(static_cast<uint32_t>(length));
-	}
+		b.write(uint8_t(0xdbu)).write(static_cast<uint32_t>(length));
 
 	b.write(value, length);
 }
@@ -230,18 +207,8 @@ void write_str(buffer& b, const char* value, size_t length) noexcept
 void write(buffer& b, const std::string& value) noexcept { write_str(b, value.c_str(), value.length()); }
 
 //---------------------------------------------------------------------------------------------------------------------
-void write(buffer& b, float value) noexcept
-{
-	b.write(uint8_t(0xca));
-	b.write(value);
-}
-
-//---------------------------------------------------------------------------------------------------------------------
-void write(buffer& b, double value) noexcept
-{
-	b.write(uint8_t(0xcb));
-	b.write(value);
-}
+void write(buffer& b, float value) noexcept { b.write(uint8_t(0xca)).write(value); }
+void write(buffer& b, double value) noexcept { b.write(uint8_t(0xcb)).write(value); }
 
 //---------------------------------------------------------------------------------------------------------------------
 void write(buffer& b, bool value) noexcept { b.write(value ? uint8_t(0xc3u) : uint8_t(0xc2u)); }
@@ -253,15 +220,9 @@ void write_array(buffer& b, const T* values, size_t numValues) noexcept
 	if (numValues <= 15)
 		b.write(uint8_t(uint8_t(0b10010000u) | static_cast<uint8_t>(numValues)));
 	else if (numValues <= nl<uint16_t>::max())
-	{
-		b.write(uint8_t(0xdcu));
-		b.write(uint16_t(numValues));
-	}
+		b.write(uint8_t(0xdcu)).write(uint16_t(numValues));
 	else
-	{
-		b.write(uint8_t(0xddu));
-		b.write(uint32_t(numValues));
-	}
+		b.write(uint8_t(0xddu)).write(uint32_t(numValues));
 
 	for (size_t i = 0; i < numValues; ++i)
 		write(b, values[i]);
@@ -273,6 +234,33 @@ void write(buffer& b, const std::vector<T, A>& value) noexcept
 {
 	write_array(b, value.data(), value.size());
 }
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename T>
+void write_map(buffer& b, const T& value) noexcept
+{
+	auto numValues = value.size();
+
+	if (numValues <= 15)
+		b.write(uint8_t(uint8_t(0b10000000u) | static_cast<uint8_t>(numValues)));
+	else if (numValues <= nl<uint16_t>::max())
+		b.write(uint8_t(0xdeu)).write(uint16_t(numValues));
+	else
+		b.write(uint8_t(0xdfu)).write(uint32_t(numValues));
+
+	for (const auto& kvp : value)
+	{
+		write(b, kvp.first);
+		write(b, kvp.second);
+	}
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename K, typename T, typename P, typename A>
+void write(buffer& b, const std::map<K, T, P, A>& value) { write_map(b, value); }
+
+template <typename K, typename T, typename H, typename EQ, typename A>
+void write(buffer& b, const std::unordered_map<K, T, H, EQ, A>& value) { write_map(b, value); }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <size_t I = 0, typename... Types>
@@ -313,7 +301,7 @@ bool read_int(buffer& b, T& value) noexcept
 	else
 		return false;
 
-	return true;
+	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -354,7 +342,7 @@ bool read_uint(buffer& b, T& value) noexcept
 	else
 		return false;
 
-	return true;
+	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -381,7 +369,7 @@ bool read(buffer& b, std::string& value) noexcept
 
 	value.resize(length);
 	b.read(value.data(), length);
-	return true;
+	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -391,7 +379,7 @@ bool read(buffer& b, float& value) noexcept
 		return false;
 
 	value = b.read<float>();
-	return true;
+	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -401,7 +389,7 @@ bool read(buffer& b, double& value) noexcept
 		return false;
 
 	value = b.read<double>();
-	return true;
+	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -417,20 +405,29 @@ bool read(buffer& b, bool& value) noexcept
 }
 
 //---------------------------------------------------------------------------------------------------------------------
+bool read_array_length(buffer& b, size_t& value) noexcept
+{
+	if (auto header = b.read<uint8_t>(); (header & 0b11110000u) == 0b10010000u)
+		value = header & 0b00001111u;
+	else if (header == 0xdcu)
+		value = b.read<uint16_t>();
+	else if (header == 0xddu)
+		value = b.read<uint32_t>();
+	else
+		return false;
+	
+	return b.valid();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 template <typename T, typename A>
 bool read(buffer& b, std::vector<T, A>& value) noexcept
 {
 	size_t numValues = 0;
+	if (auto result = read_array_length(b, numValues); result != true)
+		return result;
 
-	if (auto header = b.read<uint8_t>(); (header & 0b11110000u) == 0b10010000u)
-		numValues = header & 0b00001111u;
-	else if (header == 0xdcu)
-		numValues = b.read<uint16_t>();
-	else if (header == 0xddu)
-		numValues = b.read<uint32_t>();
-	else
-		return false;
-
+	value.clear();
 	value.reserve(value.size() + numValues);
 	for (size_t i = 0; i < numValues; ++i)
 	{
@@ -438,7 +435,61 @@ bool read(buffer& b, std::vector<T, A>& value) noexcept
 			return false;
 	}
 
-	return true;
+	return b.valid();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+bool read_map_length(buffer& b, size_t& value) noexcept
+{
+	if (auto header = b.read<uint8_t>(); (header & 0b11110000u) == 0b10000000u)
+		value = header & 0b00001111u;
+	else if (header == 0xdeu)
+		value = b.read<uint16_t>();
+	else if (header == 0xdfu)
+		value = b.read<uint32_t>();
+	else
+		return false;
+
+	return b.valid();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename T>
+bool read_map(buffer& b, T& value) noexcept
+{
+	size_t numValues = 0;
+	if (auto result = read_map_length(b, numValues); result != true)
+		return result;
+
+	std::pair<typename T::key_type, typename T::mapped_type> kvp;
+
+	value.clear();
+	for (size_t i = 0; i < numValues; ++i)
+	{
+		if (!read(b, kvp.first))
+			return false;
+
+		if (!read(b, kvp.second))
+			return false;
+
+		value.emplace(std::move(kvp));
+	}
+
+	return b.valid();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename K, typename T, typename P, typename A>
+bool read(buffer& b, std::map<K, T, P, A>& value)
+{
+	return read_map(b, value);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename K, typename T, typename H, typename EQ, typename A>
+bool read(buffer& b, std::unordered_map<K, T, H, EQ, A>& value)
+{
+	return read_map(b, value);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -468,7 +519,7 @@ bool read(buffer& b, std::tuple<Types...>& t) noexcept
 			return false;
 	}
 
-	return true;
+	return b.valid();
 }
 
 } // namespace detail

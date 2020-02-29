@@ -2,38 +2,6 @@
 
 #include <cassert>
 
-enum class InstanceType
-{
-	Unknown = 0,
-	IG,
-	Sim,
-	Sound
-};
-
-struct Heartbeat final
-{
-	std::string name;
-	uint16_t port = 0;
-	uint32_t flags = 0;
-	InstanceType type = InstanceType::Unknown;
-};
-
-struct Lines final
-{
-	std::vector<std::string> lines;
-};
-
-struct TextCommand final
-{
-	uint64_t timestamp = 0;
-	std::string text;
-};
-
-struct ListOfCommands final
-{
-	std::vector<TextCommand> commands;
-};
-
 //---------------------------------------------------------------------------------------------------------------------
 void PrintBuffer(const sbp::buffer& buff)
 {
@@ -73,54 +41,56 @@ void PrintBuffer(const sbp::buffer& buff)
 	}
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+struct TestStruct final
+{
+	std::map<int, std::string> map;
+};
+
 //---------------------------------------------------------------------------------------------------------------------
 int main(int argc, char* argv[])
 {
 	sbp::buffer buffer;
 
-	Heartbeat heartbeatIn;
-	heartbeatIn.name = "My machine";
-	heartbeatIn.port = 55555;
-	heartbeatIn.flags = 123;
-	heartbeatIn.type = InstanceType::IG;
-	sbp::write(buffer, heartbeatIn);
+	TestStruct ts;
+	ts.map[0] = "Zero";
+	ts.map[1] = "One";
+	ts.map[2] = "Two";
+	ts.map[3] = "Three";
+	ts.map[4] = "Four";
+	ts.map[5] = "Five";
+	ts.map[6] = "Six";
 
-	TextCommand cmdIn;
-	cmdIn.timestamp = 1;
-	cmdIn.text = "Hello, world!";
-	sbp::write(buffer, cmdIn);
+	sbp::write(buffer, ts);
 
-	Lines linesIn;
-	linesIn.lines.push_back("One");
-	linesIn.lines.push_back("Two");
-	linesIn.lines.push_back("Three");
-	linesIn.lines.push_back("Four");
-	linesIn.lines.push_back("Five");
-	sbp::write(buffer, linesIn);
+	TestStruct ts2;
+	sbp::read(buffer, ts2);
 
-	ListOfCommands cmdsIn;
-	cmdsIn.commands.push_back({ 1, "First" });
-	cmdsIn.commands.push_back({ 2, "Second" });
-	cmdsIn.commands.push_back({ 3, "Third" });
-	sbp::write(buffer, cmdsIn);
+	{
+		struct UserData final
+		{
+			int age;
+			float height;
+			std::string name;
+			uint64_t password_hash;
+			std::vector<int> lucky_numbers;
+		};
 
-	PrintBuffer(buffer);
+		// Fill UserData struct with some random data
+		UserData ud;
+		ud.age = 32;
+		ud.height = 1.75f;
+		ud.name = "Jeff";
+		ud.password_hash = 0xDEADBEEFDEADC0DEull;
+		ud.lucky_numbers = { 69, 420, 1984 };
 
-	Heartbeat heartbeatOut;
-	sbp::read(buffer, heartbeatOut);
-	assert(sbp::detail::destructure(heartbeatIn) == sbp::detail::destructure(heartbeatOut));
+		// Serialize it into a buffer
+		sbp::buffer buff;
+		sbp::write(buff, ud);
 
-	TextCommand cmdOut;
-	sbp::read(buffer, cmdOut);
-	assert(sbp::detail::destructure(cmdIn) == sbp::detail::destructure(cmdOut));
-
-	Lines linesOut;
-	sbp::read(buffer, linesOut);
-	assert(sbp::detail::destructure(linesIn) == sbp::detail::destructure(linesOut));
-
-	ListOfCommands cmdsOut;
-	sbp::read(buffer, cmdsOut);
-	//assert(sbp::detail::destructure(cmdsIn) == sbp::detail::destructure(cmdsOut));
+		PrintBuffer(buff);
+	}
 
 	return 0;
 }
