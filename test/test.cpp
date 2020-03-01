@@ -1,6 +1,8 @@
 #include <sbp/sbp.hpp>
 
 #include <cassert>
+#include <chrono>
+#include <iostream>
 
 //---------------------------------------------------------------------------------------------------------------------
 void PrintBuffer(const sbp::buffer& buff)
@@ -41,58 +43,65 @@ void PrintBuffer(const sbp::buffer& buff)
 	}
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-struct TestStruct final
+//---------------------------------------------------------------------------------------------------------------------
+struct Stopwatch
 {
-	std::map<int, std::string> map;
+	const char* name = "";
+	std::chrono::nanoseconds start = std::chrono::high_resolution_clock::now().time_since_epoch();
+
+	~Stopwatch()
+	{
+		auto duration = std::chrono::high_resolution_clock::now().time_since_epoch() - start;
+		std::cout << name << ": " << duration.count() / 1000000 << " ms" << std::endl;
+	}
 };
+
+//---------------------------------------------------------------------------------------------------------------------
+void TestPerformance()
+{
+	sbp::buffer buffer;
+	buffer.reserve(1024 * 1024 * 128); // Reserve 128 MB
+
+	std::cout << "Writing 10 milion messages:" << std::endl;
+
+	/// Message with int
+	{
+		struct Message final
+		{
+			int value = 1234567890;
+		} msg;
+
+		Stopwatch sw{ "    int" };
+		for (size_t j = 0; j < 10; ++j)
+		{
+			for (size_t i = 0; i < 1000000; ++i) sbp::write(buffer, msg);
+			buffer.reset(false);
+		}
+	}
+
+	/// Complex message
+	{
+		struct Message final
+		{
+			int age = 32;
+			float height = 1.75f;
+			std::string name = "Someone Unknown";
+			uint64_t password_hash = 12345;
+			std::vector<int> lucky_numbers = { 1, 2, 3, 4, 5 };
+		} msg;
+
+		Stopwatch sw{ "complex" };
+		for (size_t j = 0; j < 10; ++j)
+		{
+			for (size_t i = 0; i < 1000000; ++i) sbp::write(buffer, msg);
+			buffer.reset(false);
+		}
+	}
+}
 
 //---------------------------------------------------------------------------------------------------------------------
 int main(int argc, char* argv[])
 {
-	sbp::buffer buffer;
-
-	TestStruct ts;
-	ts.map[0] = "Zero";
-	ts.map[1] = "One";
-	ts.map[2] = "Two";
-	ts.map[3] = "Three";
-	ts.map[4] = "Four";
-	ts.map[5] = "Five";
-	ts.map[6] = "Six";
-
-	sbp::write(buffer, ts);
-
-	TestStruct ts2;
-	sbp::read(buffer, ts2);
-
-	{
-		struct UserData final
-		{
-			int age;
-			float height;
-			std::string name;
-			uint64_t password_hash;
-			std::vector<int> lucky_numbers;
-		};
-
-		// Fill UserData struct with some random data
-		UserData ud;
-		ud.age = 32;
-		ud.height = 1.75f;
-		ud.name = "Jeff";
-		ud.password_hash = 0xDEADBEEFDEADC0DEull;
-		ud.lucky_numbers = { 69, 420, 1984 };
-
-		// Serialize it into a buffer
-		sbp::buffer buff;
-
-		for (size_t i = 0; i < 1000000; ++i)
-			sbp::write(buff, ud);
-
-		//PrintBuffer(buff);
-	}
-
+	TestPerformance();
 	return 0;
 }

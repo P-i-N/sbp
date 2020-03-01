@@ -26,7 +26,12 @@ constexpr auto operator!(error err) { return err == error::none; }
 class buffer final
 {
 public:
-	buffer() noexcept { _data = _stackBuffer; }
+	buffer() noexcept
+	{
+		_data = _stackBuffer;
+		_readCursor = _writeCursor = _data;
+		_endCap = _data + _capacity;
+	}
 
 	~buffer() { reset(); }
 
@@ -37,36 +42,85 @@ public:
 
 	error valid() const noexcept { return (_readPos <= _writePos) ? error::none : error::unexpected_end; }
 
-	void reset() noexcept
+	void reset(bool freeMemory = true) noexcept
 	{
-		if (_data != _stackBuffer)
-			delete[] _data;
+		if (freeMemory)
+		{
+			if (_data != _stackBuffer)
+				delete[] _data;
 
-		_data = _stackBuffer;
-		_capacity = stack_buffer_capacity;
+			_data = _stackBuffer;
+			_capacity = stack_buffer_capacity;
+		}
+
 		_writePos = _readPos = 0;
+		_readCursor = _writeCursor = _data;
+		_endCap = _data + _capacity;
 	}
 
-	buffer& write(const void* data, size_t numBytes) noexcept
+	void reserve(size_t newCapacity) noexcept
 	{
-		if ((_writePos += numBytes) >= _capacity)
+		if (newCapacity > _capacity)
 		{
-			auto* newData = new uint8_t[_capacity *= 2];
-			memcpy(newData, _data, _writePos - numBytes);
+			auto readOffset = _readCursor - _data;
+			auto writeOffset = _writeCursor - _data;
+
+			auto* newData = new uint8_t[_capacity = newCapacity];
+			memcpy(newData, _data, _writePos);
 
 			if (_data != _stackBuffer)
 				delete[] _data;
 
 			_data = newData;
+			_readCursor = _data + readOffset;
+			_writeCursor = _data + writeOffset;
+			_endCap = _data + _capacity;
+		}
+	}
+
+	buffer& write(const void* data, size_t numBytes) noexcept
+	{
+		auto* newWriteCursor = _writeCursor + numBytes;
+		if (newWriteCursor > _endCap)
+		{
+			reserve(_capacity * 2);
+			newWriteCursor = _writeCursor + numBytes;
 		}
 
-		memcpy(_data + _writePos - numBytes, data, numBytes);
+		memcpy(_writeCursor, data, numBytes);
+		_writeCursor = newWriteCursor;
+		return *this;
+	}
+
+	template <size_t NumBytes>
+	buffer& write(const void* data) noexcept
+	{
+		if constexpr (NumBytes == 1)
+		{
+			if (_writeCursor == _endCap)
+				reserve(_capacity * 2);
+
+			*_writeCursor++ = *reinterpret_cast<const uint8_t*>(data);
+		}
+		else
+		{
+			auto* newWriteCursor = _writeCursor + NumBytes;
+			if (newWriteCursor > _endCap)
+			{
+				reserve(_capacity * 2);
+				newWriteCursor = _writeCursor + NumBytes;
+			}
+
+			memcpy(_writeCursor, data, NumBytes);
+			_writeCursor = newWriteCursor;
+		}
+
 		return *this;
 	}
 
 	template <typename T>
-	buffer& write(T value) noexcept { return write(&value, sizeof(T)); }
-	
+	buffer& write(T&& value) noexcept { return write<sizeof(T)>(&value); }
+
 	void read(void* data, size_t numBytes) noexcept
 	{
 		if (_readPos + numBytes <= _writePos)
@@ -79,7 +133,7 @@ public:
 	T read() noexcept
 	{
 		_readPos += sizeof(T);
-		return (_readPos <= _writePos) ? *reinterpret_cast<const T*>(_data + _readPos - sizeof(T)) : T(0);
+		return (_readPos < _writePos) ? *reinterpret_cast<const T*>(_data + _readPos - sizeof(T)) : T(0);
 	}
 
 	template <typename RT, typename T>
@@ -102,6 +156,11 @@ private:
 	size_t _writePos = 0;
 	size_t _readPos = 0;
 	uint8_t* _data = nullptr;
+
+	uint8_t* _writeCursor = nullptr;
+	const uint8_t* _readCursor = nullptr;
+	const uint8_t* _endCap = nullptr;
+
 	size_t _capacity = stack_buffer_capacity;
 	uint8_t _stackBuffer[stack_buffer_capacity] = { };
 };
@@ -283,7 +342,7 @@ template <size_t I = 0, typename... Types>
 void write(buffer& b, const std::tuple<Types...>& t) noexcept
 {
 	const auto& value = std::get<I>(t);
-	using Type = std::decay_t<decltype(value)>;
+	using Type = std::remove_reference_t<decltype(value)>;
 
 	if constexpr (std::is_enum_v<Type>)
 		write(b, std::underlying_type_t<Type>(value));
@@ -500,15 +559,15 @@ template <size_t I = 0, typename... Types>
 error read(buffer& b, std::tuple<Types...>& t) noexcept
 {
 	auto& value = std::get<I>(t);
-	using Type = std::decay_t<decltype(value)>;
+	using Type = std::remove_reference_t<decltype(value)>;
 
 	if constexpr (std::is_enum_v<Type>)
 	{
-		auto underlyingType = std::underlying_type_t<Type>(0);
-		if (auto err = read(b, underlyingType); !!err)
+		auto underlyingValue = std::underlying_type_t<Type>(0);
+		if (auto err = read(b, underlyingValue); !!err)
 			return err;
 
-		value = static_cast<Type>(underlyingType);
+		value = static_cast<Type>(underlyingValue);
 	}
 	else
 	{
