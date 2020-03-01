@@ -1,5 +1,6 @@
 #include <sbp/sbp.hpp>
 
+#include <array>
 #include <cassert>
 #include <chrono>
 #include <iostream>
@@ -57,26 +58,63 @@ struct Stopwatch
 };
 
 //---------------------------------------------------------------------------------------------------------------------
+template <typename T>
+void TestWriteReadPerformance(std::string_view text, sbp::buffer& b, size_t cycles, size_t opsPerCycle)
+{
+	T msg;
+
+	// Write
+	{
+		std::string str = std::string(text) + " W";
+		Stopwatch sw{ str.c_str() };
+
+		for (size_t j = 0; j < 10; ++j)
+		{
+			b.reset(false);
+			for (size_t i = 0; i < 1000000; ++i) sbp::write(b, msg);
+		}
+	}
+
+	// Read
+	{
+		std::string str = std::string(text) + " R";
+		Stopwatch sw{ str.c_str() };
+
+		bool error = false;
+		for (size_t j = 0; j < 10 && !error; ++j)
+		{
+			b.reset_read_pos();
+			for (size_t i = 0; i < 1000000; ++i)
+			{
+				if (sbp::read(b, msg) != sbp::error::none)
+				{
+					error = true;
+					break;
+				}
+			}
+		}
+
+		if (error)
+			std::cout << "deserialization error!" << std::endl;
+	}
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 void TestPerformance()
 {
 	sbp::buffer buffer;
 	buffer.reserve(1024 * 1024 * 128); // Reserve 128 MB
 
-	std::cout << "Writing 10 milion messages:" << std::endl;
+	std::cout << "write/read 10 milion messages:" << std::endl;
 
 	/// Message with int
 	{
 		struct Message final
 		{
 			int value = 1234567890;
-		} msg;
+		};
 
-		Stopwatch sw{ "    int" };
-		for (size_t j = 0; j < 10; ++j)
-		{
-			for (size_t i = 0; i < 1000000; ++i) sbp::write(buffer, msg);
-			buffer.reset(false);
-		}
+		TestWriteReadPerformance<Message>("    int", buffer, 10, 1000000);
 	}
 
 	/// Complex message
@@ -86,16 +124,12 @@ void TestPerformance()
 			int age = 32;
 			float height = 1.75f;
 			std::string name = "Someone Unknown";
+			const char* c_str = "Will this work?!";
 			uint64_t password_hash = 12345;
-			std::vector<int> lucky_numbers = { 1, 2, 3, 4, 5 };
-		} msg;
+			std::array<int, 5> lucky_numbers = { 1, 2, 3, 4, 5 };
+		};
 
-		Stopwatch sw{ "complex" };
-		for (size_t j = 0; j < 10; ++j)
-		{
-			for (size_t i = 0; i < 1000000; ++i) sbp::write(buffer, msg);
-			buffer.reset(false);
-		}
+		TestWriteReadPerformance<Message>("complex", buffer, 10, 1000000);
 	}
 }
 
