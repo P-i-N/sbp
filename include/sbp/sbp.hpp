@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -30,17 +31,18 @@ public:
 	{
 		_data = _stackBuffer;
 		_readCursor = _writeCursor = _data;
-		_endCap = _data + _capacity;
+		_endCap = _data + stack_buffer_capacity;
 	}
 
 	~buffer() { reset(); }
 
-	void* data() noexcept { return _data; }
-	const void* data() const noexcept { return _data; }
-
-	size_t size() const noexcept { return _writePos; }
-
-	error valid() const noexcept { return (_readPos <= _writePos) ? error::none : error::unexpected_end; }
+	uint8_t* data() noexcept { return _data; }
+	const uint8_t* data() const noexcept { return _data; }
+	uint8_t* write_cursor() const noexcept { return _writeCursor; }
+	const uint8_t* read_cursor() const noexcept { return _readCursor; }
+	size_t size() const noexcept { return static_cast<size_t>(_writeCursor - _data); }
+	size_t capacity() const noexcept { return static_cast<size_t>(_endCap - _data); }
+	error valid() const noexcept { return (_readCursor <= _writeCursor) ? error::none : error::unexpected_end; }
 
 	void reset(bool freeMemory = true) noexcept
 	{
@@ -50,23 +52,26 @@ public:
 				delete[] _data;
 
 			_data = _stackBuffer;
-			_capacity = stack_buffer_capacity;
+			_endCap = _data + stack_buffer_capacity;
 		}
 
-		_writePos = _readPos = 0;
 		_readCursor = _writeCursor = _data;
-		_endCap = _data + _capacity;
+	}
+
+	void reset_read_pos() noexcept
+	{
+		_readCursor = _data;
 	}
 
 	void reserve(size_t newCapacity) noexcept
 	{
-		if (newCapacity > _capacity)
+		if (newCapacity > capacity())
 		{
 			auto readOffset = _readCursor - _data;
 			auto writeOffset = _writeCursor - _data;
 
-			auto* newData = new uint8_t[_capacity = newCapacity];
-			memcpy(newData, _data, _writePos);
+			auto* newData = new uint8_t[newCapacity];
+			memcpy(newData, _data, writeOffset);
 
 			if (_data != _stackBuffer)
 				delete[] _data;
@@ -74,7 +79,7 @@ public:
 			_data = newData;
 			_readCursor = _data + readOffset;
 			_writeCursor = _data + writeOffset;
-			_endCap = _data + _capacity;
+			_endCap = _data + newCapacity;
 		}
 	}
 
@@ -83,7 +88,7 @@ public:
 		auto* newWriteCursor = _writeCursor + numBytes;
 		if (newWriteCursor > _endCap)
 		{
-			reserve(_capacity * 2);
+			reserve(capacity() * 2);
 			newWriteCursor = _writeCursor + numBytes;
 		}
 
@@ -98,7 +103,7 @@ public:
 		if constexpr (NumBytes == 1)
 		{
 			if (_writeCursor == _endCap)
-				reserve(_capacity * 2);
+				reserve(capacity() * 2);
 
 			*_writeCursor++ = *reinterpret_cast<const uint8_t*>(data);
 		}
@@ -107,7 +112,7 @@ public:
 			auto* newWriteCursor = _writeCursor + NumBytes;
 			if (newWriteCursor > _endCap)
 			{
-				reserve(_capacity * 2);
+				reserve(capacity() * 2);
 				newWriteCursor = _writeCursor + NumBytes;
 			}
 
@@ -123,17 +128,17 @@ public:
 
 	void read(void* data, size_t numBytes) noexcept
 	{
-		if (_readPos + numBytes <= _writePos)
-			memcpy(data, _data + _readPos, numBytes);
+		if (_readCursor + numBytes <= _writeCursor)
+			memcpy(data, _readCursor, numBytes);
 
-		_readPos += numBytes;
+		_readCursor += numBytes;
 	}
 
 	template <typename T>
 	T read() noexcept
 	{
-		_readPos += sizeof(T);
-		return (_readPos < _writePos) ? *reinterpret_cast<const T*>(_data + _readPos - sizeof(T)) : T(0);
+		_readCursor += sizeof(T);
+		return (_readCursor < _writeCursor) ? *reinterpret_cast<const T*>(_readCursor - sizeof(T)) : T(0);
 	}
 
 	template <typename RT, typename T>
@@ -142,26 +147,27 @@ public:
 		if constexpr (sizeof(T) < sizeof(RT))
 			return error::corrupted_data;
 
-		if (_readPos + sizeof(RT) > _writePos)
+		if (_readCursor + sizeof(RT) > _writeCursor)
 			return error::unexpected_end;
 
-		result = static_cast<T>(*reinterpret_cast<const RT*>(_data + _readPos));
-		_readPos += sizeof(RT);
+		result = static_cast<T>(*reinterpret_cast<const RT*>(_readCursor));
+		_readCursor += sizeof(RT);
 		return error::none;
+	}
+
+	void read_skip(size_t numBytes) noexcept
+	{
+		_readCursor += numBytes;
 	}
 
 private:
 	static constexpr size_t stack_buffer_capacity = 256;
 
-	size_t _writePos = 0;
-	size_t _readPos = 0;
-	uint8_t* _data = nullptr;
-
 	uint8_t* _writeCursor = nullptr;
 	const uint8_t* _readCursor = nullptr;
 	const uint8_t* _endCap = nullptr;
 
-	size_t _capacity = stack_buffer_capacity;
+	uint8_t* _data = nullptr;
 	uint8_t _stackBuffer[stack_buffer_capacity] = { };
 };
 
@@ -175,14 +181,14 @@ struct any { template <typename T> operator T() const; };
 template <typename T, typename In, typename = void>
 struct has_n_members : std::false_type { };
 
+template <typename T, size_t... In>
+struct has_n_members<T, std::index_sequence<In...>, std::void_t<decltype(T{ any<In>()... })>> : std::true_type { };
+
 template <typename T, typename In>
 struct has_n_members<T&, In> : has_n_members<T, In> { };
 
 template <typename T, typename In>
 struct has_n_members<T&&, In> : has_n_members<T, In> { };
-
-template <typename T, size_t... In>
-struct has_n_members < T, std::index_sequence<In...>, std::void_t<decltype(T{ any<In>()... }) >> : std::true_type { };
 
 template <typename T, size_t N>
 constexpr bool has_n_members_v = has_n_members<T, std::make_index_sequence<N>>::value;
@@ -280,6 +286,10 @@ void write_str(buffer& b, const char* value, size_t length) noexcept
 
 //---------------------------------------------------------------------------------------------------------------------
 void write(buffer& b, const std::string& value) noexcept { write_str(b, value.c_str(), value.length()); }
+void write(buffer& b, const char* value) noexcept
+{
+	write_str(b, value, value ? (strlen(value) + 1) : 0);
+}
 
 //---------------------------------------------------------------------------------------------------------------------
 void write(buffer& b, float value) noexcept { b.write(uint8_t(0xca)).write(value); }
@@ -304,11 +314,29 @@ void write_array(buffer& b, const T* values, size_t numValues) noexcept
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-template <typename T, typename A>
-void write(buffer& b, const std::vector<T, A>& value) noexcept
+template <size_t NumValues, typename T>
+void write_array_fixed(buffer& b, const T* values) noexcept
 {
-	write_array(b, value.data(), value.size());
+	if constexpr (NumValues <= 15)
+		b.write(uint8_t(uint8_t(0b10010000u) | static_cast<uint8_t>(NumValues)));
+	else if constexpr (NumValues <= nl<uint16_t>::max())
+		b.write(uint8_t(0xdcu)).write(uint16_t(NumValues));
+	else
+		b.write(uint8_t(0xddu)).write(uint32_t(NumValues));
+
+	for (size_t i = 0; i < NumValues; ++i)
+		write(b, values[i]);
 }
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename T, typename A>
+void write(buffer& b, const std::vector<T, A>& value) noexcept { write_array(b, value.data(), value.size()); }
+
+template <typename T, size_t NumValues>
+void write(buffer& b, const T (&value)[NumValues]) noexcept { write_array(b, value, NumValues); }
+
+template <typename T, size_t NumValues>
+void write(buffer& b, const std::array<T, NumValues>& value) noexcept { write_array(b, value.data(), NumValues); }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
@@ -414,23 +442,44 @@ error read(buffer& b, uint32_t& value) noexcept { return read_uint(b, value); }
 error read(buffer& b, uint64_t& value) noexcept { return read_uint(b, value); }
 
 //---------------------------------------------------------------------------------------------------------------------
+error read_string_length(buffer& b, size_t& value) noexcept
+{
+	if (auto header = b.read<uint8_t>(); (header & 0b11100000u) == 0b10100000u)
+	{
+		value = header & 0b00011111u;
+		return b.valid();
+	}
+	else if (header == 0xd9u)
+		return b.read<uint8_t>(value);
+	else if (header == 0xdau)
+		return b.read<uint16_t>(value);
+	else if (header == 0xdbu)
+		return b.read<uint32_t>(value);
+
+	return error::corrupted_data;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
 error read(buffer& b, std::string& value) noexcept
 {
 	size_t length = 0;
-
-	if (auto header = b.read<uint8_t>(); (header & 0b11100000u) == 0b10100000u)
-		length = header & 0b00011111u;
-	else if (header == 0xd9u)
-		length = b.read<uint8_t>();
-	else if (header == 0xdau)
-		length = b.read<uint16_t>();
-	else if (header == 0xdbu)
-		length = b.read<uint32_t>();
-	else
-		return error::corrupted_data;
+	if (auto err = read_string_length(b, length); !!err)
+		return err;
 
 	value.resize(length);
 	b.read(value.data(), length);
+	return b.valid();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+error read(buffer& b, const char*& value) noexcept
+{
+	size_t length = 0;
+	if (auto err = read_string_length(b, length); !!err)
+		return err;
+
+	value = reinterpret_cast<const char *>(b.read_cursor());
+	b.read_skip(length);
 	return b.valid();
 }
 
@@ -493,6 +542,26 @@ error read(buffer& b, std::vector<T, A>& value) noexcept
 	for (size_t i = 0; i < numValues; ++i)
 	{
 		if (auto err = read(b, value.emplace_back()); !!err)
+			return err;
+	}
+
+	return b.valid();
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename T, size_t NumValues>
+error read(buffer& b, std::array<T, NumValues>& value) noexcept
+{
+	size_t numValues = 0;
+	if (auto err = read_array_length(b, numValues); !!err)
+		return err;
+
+	if (numValues != NumValues)
+		return error::corrupted_data;
+
+	for (size_t i = 0; i < NumValues; ++i)
+	{
+		if (auto err = read(b, value[i]); !!err)
 			return err;
 	}
 
@@ -599,13 +668,7 @@ void write(buffer& b, const T& msg) noexcept
 template <typename T>
 error read(buffer& b, T& msg) noexcept
 {
-	if (auto err = detail::read(b, detail::destructure(msg)); !!err)
-	{
-		// TODO: Return proper reason
-		return err;
-	}
-
-	return error::none;
+	return detail::read(b, detail::destructure(msg));
 }
 
 } // namespace sbp
