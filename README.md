@@ -63,7 +63,7 @@ c0 07                   : 1984
 ## Limitations
 - no STL streams or allocators support (but feel free to roll your own `sbp::buffer` implementation)
 - error reporting is very primitive, no exceptions used
-- inheritance does not work, you must use compoition instead:
+- inheritance does not work, you must use composition instead:
   - ```cpp
 	struct Foo { int x; };
 
