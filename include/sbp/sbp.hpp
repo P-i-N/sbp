@@ -394,7 +394,8 @@ error read_int(buffer& b, T& value) noexcept
 	}
 	else if ((header & 0b11100000u) == 0b11100000u)
 	{
-		// TODO: Convert this properly
+		value = static_cast<T>(static_cast<int8_t>(header));
+		return b.valid();
 	}
 	else if (header == 0xd0u)
 		return b.read<int8_t>(value);
