@@ -138,7 +138,7 @@ public:
 	T read() noexcept
 	{
 		_readCursor += sizeof(T);
-		return (_readCursor < _writeCursor) ? *reinterpret_cast<const T*>(_readCursor - sizeof(T)) : T(0);
+		return (_readCursor <= _writeCursor) ? *reinterpret_cast<const T*>(_readCursor - sizeof(T)) : T(0);
 	}
 
 	template <typename RT, typename T>
