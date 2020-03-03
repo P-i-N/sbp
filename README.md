@@ -1,7 +1,7 @@
 # Structured Bindings Pack
-Header only library for serializing C++ structs into [MessagePack](https://github.com/msgpack/msgpack/blob/master/spec.md) binary form with minimal boilerplate code. Requires C++17 and MSVC compiler.
+Header only library for serializing C++ structs into [MessagePack](https://github.com/msgpack/msgpack/blob/master/spec.md) binary form with minimal boilerplate code. Requires C++17 and MSVC compiler (but should probably work with other compilers as well).
 
-## Example
+## Quick example
 ```cpp
 struct UserData final
 {
@@ -23,11 +23,16 @@ ud.lucky_numbers = { 69, 420, 1984 };
 // Serialize it into a buffer
 sbp::buffer buff;
 sbp::write(buff, ud);
+```
+That's it! 
 
+```cpp
 // Deserialize back into second instance
 UserData ud2;
 sbp::read(buff, ud2);
 ```
+
+## What is this good for?
 
 #### How does serialized `UserData` instance look in memory:
 ```cpp
@@ -61,6 +66,7 @@ c0 07                   : 1984
 - `std::array`
 
 ## Limitations
+- library does not care about endianness
 - no STL streams or allocators support (but feel free to roll your own `sbp::buffer` implementation)
 - error reporting is very primitive, no exceptions used
 - inheritance does not work, you must use composition instead:
@@ -78,6 +84,8 @@ c0 07                   : 1984
 
 	struct Bar { std::array<int, 5> numbers; } // OK
     ```
+
+- if you really want to use inheritance (or even C-style arrays), you would have to provide template specializations for `std::tuple_size`, `std::tuple_element` and `std::get`
 
 ## Credits
 - structured binding code originally taken from [avakar/destructure](https://github.com/avakar/destructure)
