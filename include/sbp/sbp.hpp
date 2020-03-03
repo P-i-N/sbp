@@ -38,8 +38,6 @@ public:
 
 	uint8_t* data() noexcept { return _data; }
 	const uint8_t* data() const noexcept { return _data; }
-	uint8_t* write_cursor() const noexcept { return _writeCursor; }
-	const uint8_t* read_cursor() const noexcept { return _readCursor; }
 	size_t size() const noexcept { return static_cast<size_t>(_writeCursor - _data); }
 	size_t capacity() const noexcept { return static_cast<size_t>(_endCap - _data); }
 	error valid() const noexcept { return (_readCursor <= _writeCursor) ? error::none : error::unexpected_end; }
@@ -155,9 +153,11 @@ public:
 		return error::none;
 	}
 
-	void read_skip(size_t numBytes) noexcept
+	const void *skip(size_t numBytes) noexcept
 	{
+		const void* result = (_readCursor + numBytes <= _writeCursor) ? _readCursor : nullptr;
 		_readCursor += numBytes;
+		return result;
 	}
 
 private:
@@ -479,8 +479,7 @@ error read(buffer& b, const char*& value) noexcept
 	if (auto err = read_string_length(b, length); !!err)
 		return err;
 
-	value = reinterpret_cast<const char *>(b.read_cursor());
-	b.read_skip(length);
+	value = reinterpret_cast<const char *>(b.skip(length));
 	return b.valid();
 }
 
