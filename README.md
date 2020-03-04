@@ -1,5 +1,8 @@
 # Structured Bindings Pack
-Header only library for serializing C++ structs into [MessagePack](https://github.com/msgpack/msgpack/blob/master/spec.md) binary form with minimal boilerplate code. Requires C++17 and MSVC compiler (but should probably work with other compilers as well).
+Header only library for serializing C++ structs into [MessagePack](https://github.com/msgpack/msgpack/blob/master/spec.md) binary form with minimal boilerplate code. Requires C++17 and MSVC compiler (but should probably work with other compilers as well). Obviously, this is just a fun project, highly experimental, avoid using it during _rocket surgeries_.
+
+## What is this good for?
+
 
 ## Quick example
 ```cpp
@@ -24,7 +27,7 @@ ud.lucky_numbers = { 69, 420, 1984 };
 sbp::buffer buff;
 sbp::write(buff, ud);
 ```
-That's it! 
+That's it! As long as your structs are simple enough (see limitations below), there is no need to write any extra serialization or deserialization code.
 
 ```cpp
 // Deserialize back into second instance
@@ -32,9 +35,7 @@ UserData ud2;
 sbp::read(buff, ud2);
 ```
 
-## What is this good for?
-
-#### How does serialized `UserData` instance look in memory:
+How does serialized `UserData` instance look like in memory:
 ```cpp
 '20 ca 00 00 e0 3f a4 4a 65 66 66 cf de c0 ad de ef be ad de 93 45 d1 a4 01 d1 c0 07'
 
@@ -72,20 +73,17 @@ c0 07                   : 1984
 - inheritance does not work, you must use composition instead:
   - ```cpp
 	struct Foo { int x; };
-
-	struct Bar : Foo { float y; }; // Will not serialize!
-
+	struct Bar : Foo { float y; };     // Will not serialize!
 	struct Bar2 { Foo foo; float y; }; // OK
     ```
 
 - C-style arrays do not work, you must use `std::array` instead:
   - ```cpp
-	struct Foo { int numbers[5]; }; // Will not serialize!
-
+	struct Foo { int numbers[5]; };            // Will not serialize!
 	struct Bar { std::array<int, 5> numbers; } // OK
     ```
 
-- if you really want to use inheritance (or even C-style arrays), you would have to provide template specializations for `std::tuple_size`, `std::tuple_element` and `std::get`
+- if you really want to use inheritance (or even C-style arrays), you have to provide template specializations for `std::tuple_size`, `std::tuple_element` and `std::get`
 
 ## Credits
 - structured binding code originally taken from [avakar/destructure](https://github.com/avakar/destructure)
