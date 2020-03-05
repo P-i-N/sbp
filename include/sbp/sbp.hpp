@@ -197,11 +197,11 @@ template <typename T>
 auto destructure(T& t) noexcept
 {
 #define _SBP_TIE(_Count, ...) \
-	else if constexpr (has_n_members_v<T, _Count>) { \
+	if constexpr (has_n_members_v<T, _Count>) { \
 		auto &&[__VA_ARGS__] = std::forward<T>(t); \
-		return std::tie(__VA_ARGS__); }
+		return std::tie(__VA_ARGS__); } \
+	else
 
-	if (false) { }
 	_SBP_TIE(16, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15)
 	_SBP_TIE(15, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14)
 	_SBP_TIE(14, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13)
@@ -218,7 +218,7 @@ auto destructure(T& t) noexcept
 	_SBP_TIE( 3, m0, m1, m2)
 	_SBP_TIE( 2, m0, m1)
 	_SBP_TIE( 1, m0)
-	else { return std::tuple(); }
+	{ return std::tuple(); }
 
 #undef _SBP_TIE
 }
