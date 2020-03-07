@@ -83,15 +83,9 @@ public:
 
 	buffer& write(const void* data, size_t numBytes) noexcept
 	{
-		auto* newWriteCursor = _writeCursor + numBytes;
-		if (newWriteCursor > _endCap)
-		{
-			reserve(capacity() * 2);
-			newWriteCursor = _writeCursor + numBytes;
-		}
-
+		ensure_capacity(numBytes);
 		memcpy(_writeCursor, data, numBytes);
-		_writeCursor = newWriteCursor;
+		_writeCursor += numBytes;
 		return *this;
 	}
 
@@ -107,15 +101,9 @@ public:
 		}
 		else
 		{
-			auto* newWriteCursor = _writeCursor + NumBytes;
-			if (newWriteCursor > _endCap)
-			{
-				reserve(capacity() * 2);
-				newWriteCursor = _writeCursor + NumBytes;
-			}
-
+			ensure_capacity(NumBytes);
 			memcpy(_writeCursor, data, NumBytes);
-			_writeCursor = newWriteCursor;
+			_writeCursor += NumBytes;
 		}
 
 		return *this;
@@ -127,9 +115,7 @@ public:
 	template <typename T>
 	buffer& write(uint8_t header, T&& value) noexcept
 	{
-		if (_writeCursor + 1 + sizeof(T) > _endCap)
-			reserve(capacity() * 2);
-
+		ensure_capacity(1 + sizeof(T));
 		*_writeCursor++ = header;
 		memcpy(_writeCursor, &value, sizeof(T));
 		_writeCursor += sizeof(T);
@@ -173,6 +159,17 @@ public:
 	}
 
 private:
+	void ensure_capacity(size_t NumBytes) noexcept
+	{
+		if (_writeCursor + NumBytes > _endCap)
+		{
+			auto cap1 = size() + NumBytes;
+			auto cap2 = capacity() * 2;
+
+			reserve((cap1 > cap2) ? cap1 : cap2);
+		}
+	}
+
 	static constexpr size_t stack_buffer_capacity = 256;
 
 	uint8_t* _writeCursor = nullptr;
