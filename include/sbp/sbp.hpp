@@ -76,16 +76,15 @@ public:
 		}
 	}
 
-	buffer& write(const void* data, size_t numBytes) noexcept
+	void write(const void* data, size_t numBytes) noexcept
 	{
 		ensure_capacity(numBytes);
 		memcpy(_writeCursor, data, numBytes);
 		_writeCursor += numBytes;
-		return *this;
 	}
 
 	template <size_t NumBytes>
-	buffer& write(const void* data) noexcept
+	void write(const void* data) noexcept
 	{
 		if constexpr (NumBytes == 1)
 		{
@@ -100,21 +99,18 @@ public:
 			memcpy(_writeCursor, data, NumBytes);
 			_writeCursor += NumBytes;
 		}
-
-		return *this;
 	}
 
 	template <typename T>
-	buffer& write(T&& value) noexcept { return write<sizeof(T)>(&value); }
+	void write(T&& value) noexcept { write<sizeof(T)>(&value); }
 
 	template <typename T>
-	buffer& write(uint8_t header, T&& value) noexcept
+	void write(uint8_t header, T&& value) noexcept
 	{
 		ensure_capacity(1 + sizeof(T));
 		*_writeCursor++ = header;
 		memcpy(_writeCursor, &value, sizeof(T));
 		_writeCursor += sizeof(T);
-		return *this;
 	}
 
 	void read(void* data, size_t numBytes) noexcept
@@ -310,8 +306,8 @@ void write(buffer& b, const std::string& value) noexcept { write_str(b, value.c_
 void write(buffer& b, const char* value) noexcept { write_str(b, value, value ? (strlen(value) + 1) : 0); }
 
 //---------------------------------------------------------------------------------------------------------------------
-void write(buffer& b, float value) noexcept { b.write(uint8_t(0xca)).write(value); }
-void write(buffer& b, double value) noexcept { b.write(uint8_t(0xcb)).write(value); }
+void write(buffer& b, float value) noexcept { b.write(0xca, value); }
+void write(buffer& b, double value) noexcept { b.write(0xcb, value); }
 
 //---------------------------------------------------------------------------------------------------------------------
 void write(buffer& b, bool value) noexcept { b.write(value ? uint8_t(0xc3u) : uint8_t(0xc2u)); }
@@ -411,11 +407,20 @@ void write_ext(buffer& b, int8_t type, const void* data) noexcept
 	else if constexpr (NumBytes == 16)
 		b.write(0xd8u, type);
 	else if constexpr (NumBytes <= nl<uint8_t>::max())
-		b.write(0xc7u, uint8_t(NumBytes)).write(type);
+	{
+		b.write(0xc7u, uint8_t(NumBytes));
+		b.write(type);
+	}
 	else if constexpr (NumBytes <= nl<uint16_t>::max())
-		b.write(0xc8u, uint16_t(NumBytes)).write(type);
+	{
+		b.write(0xc8u, uint16_t(NumBytes));
+		b.write(type);
+	}
 	else
-		b.write(0xc9u, uint32_t(NumBytes)).write(type);
+	{
+		b.write(0xc9u, uint32_t(NumBytes));
+		b.write(type);
+	}
 
 	b.write(data, NumBytes);
 }
@@ -434,11 +439,20 @@ void write_ext(buffer& b, int8_t type, const void* data, size_t numBytes) noexce
 	else if (numBytes == 16)
 		b.write(0xd8u, type);
 	else if (numBytes <= nl<uint8_t>::max())
-		b.write(0xc7u, uint8_t(numBytes)).write(type);
+	{
+		b.write(0xc7u, uint8_t(numBytes));
+		b.write(type);
+	}
 	else if (numBytes <= nl<uint16_t>::max())
-		b.write(0xc8u, uint16_t(numBytes)).write(type);
+	{
+		b.write(0xc8u, uint16_t(numBytes));
+		b.write(type);
+	}
 	else
-		b.write(0xc9u, uint32_t(numBytes)).write(type);
+	{
+		b.write(0xc9u, uint32_t(numBytes));
+		b.write(type);
+	}
 
 	b.write(data, numBytes);
 }
