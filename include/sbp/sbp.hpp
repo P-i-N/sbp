@@ -173,6 +173,22 @@ private:
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+template <typename T, int8_t TypeID = 0>
+class ext final
+{
+public:
+	ext() noexcept = default;
+	ext(const T &value) noexcept: _value(value) { }
+
+	operator T* () const { return &_value; }
+	T* operator->() noexcept { return &_value; }
+
+private:
+	T _value;
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 namespace detail {
 
 template <size_t>
@@ -199,8 +215,7 @@ auto destructure(T& t) noexcept
 #define _SBP_TIE(_Count, ...) \
 	if constexpr (has_n_members_v<T, _Count>) { \
 		auto &&[__VA_ARGS__] = std::forward<T>(t); \
-		return std::tie(__VA_ARGS__); } \
-	else
+		return std::tie(__VA_ARGS__); } else
 
 	_SBP_TIE(16, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15)
 	_SBP_TIE(15, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14)
@@ -286,10 +301,7 @@ void write_str(buffer& b, const char* value, size_t length) noexcept
 
 //---------------------------------------------------------------------------------------------------------------------
 void write(buffer& b, const std::string& value) noexcept { write_str(b, value.c_str(), value.length()); }
-void write(buffer& b, const char* value) noexcept
-{
-	write_str(b, value, value ? (strlen(value) + 1) : 0);
-}
+void write(buffer& b, const char* value) noexcept { write_str(b, value, value ? (strlen(value) + 1) : 0); }
 
 //---------------------------------------------------------------------------------------------------------------------
 void write(buffer& b, float value) noexcept { b.write(uint8_t(0xca)).write(value); }
@@ -364,6 +376,70 @@ void write(buffer& b, const std::map<K, T, P, A>& value) noexcept { write_map(b,
 
 template <typename K, typename T, typename H, typename EQ, typename A>
 void write(buffer& b, const std::unordered_map<K, T, H, EQ, A>& value) noexcept { write_map(b, value); }
+
+//---------------------------------------------------------------------------------------------------------------------
+void write_bin(buffer& b, const void* data, size_t numBytes) noexcept
+{
+	if (numBytes <= nl<uint8_t>::max())
+		b.write(uint8_t(0xc4u)).write(uint8_t(numBytes));
+	else if (numBytes <= nl<uint16_t>::max())
+		b.write(uint8_t(0xc5u)).write(uint16_t(numBytes));
+	else
+		b.write(uint8_t(0xc6u)).write(uint32_t(numBytes));
+
+	b.write(data, numBytes);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+template <size_t NumBytes>
+void write_ext(buffer& b, int8_t type, const void* data) noexcept
+{
+	if constexpr (NumBytes == 1)
+		b.write(uint8_t(0xd4u));
+	else if constexpr (NumBytes == 2)
+		b.write(uint8_t(0xd5u));
+	else if constexpr (NumBytes == 4)
+		b.write(uint8_t(0xd6u));
+	else if constexpr (NumBytes == 8)
+		b.write(uint8_t(0xd7u));
+	else if constexpr (NumBytes == 16)
+		b.write(uint8_t(0xd8u));
+	else if constexpr (NumBytes <= nl<uint8_t>::max())
+		b.write(uint8_t(0xc7u)).write(uint8_t(NumBytes));
+	else if constexpr (NumBytes <= nl<uint16_t>::max())
+		b.write(uint8_t(0xc8u)).write(uint16_t(NumBytes));
+	else
+		b.write(uint8_t(0xc9u)).write(uint32_t(NumBytes));
+
+	b.write(type).write(data, NumBytes);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+void write_ext(buffer& b, int8_t type, const void* data, size_t numBytes) noexcept
+{
+	if (numBytes == 1)
+		b.write(uint8_t(0xd4u));
+	else if (numBytes == 2)
+		b.write(uint8_t(0xd5u));
+	else if (numBytes == 4)
+		b.write(uint8_t(0xd6u));
+	else if (numBytes == 8)
+		b.write(uint8_t(0xd7u));
+	else if (numBytes == 16)
+		b.write(uint8_t(0xd8u));
+	else if (numBytes <= nl<uint8_t>::max())
+		b.write(uint8_t(0xc7u)).write(uint8_t(numBytes));
+	else if (numBytes <= nl<uint16_t>::max())
+		b.write(uint8_t(0xc8u)).write(uint16_t(numBytes));
+	else
+		b.write(uint8_t(0xc9u)).write(uint32_t(numBytes));
+
+	b.write(type).write(data, numBytes);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename T, int8_t TypeID>
+void write(buffer& b, const ext<T, TypeID>& value) noexcept { write_ext<sizeof(T)>(b, TypeID, &value); }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <size_t I = 0, typename... Types>
@@ -611,16 +687,78 @@ error read_map(buffer& b, T& value) noexcept
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename K, typename T, typename P, typename A>
-error read(buffer& b, std::map<K, T, P, A>& value) noexcept
+error read(buffer& b, std::map<K, T, P, A>& value) noexcept { return read_map(b, value); }
+
+template <typename K, typename T, typename H, typename EQ, typename A>
+error read(buffer& b, std::unordered_map<K, T, H, EQ, A>& value) noexcept { return read_map(b, value); }
+
+//---------------------------------------------------------------------------------------------------------------------
+template <size_t NumBytes>
+error read_ext(buffer& b, int8_t& type, const void*& value) noexcept
 {
-	return read_map(b, value);
+	auto header = b.read<uint8_t>();
+	if constexpr (NumBytes == 1)
+	{
+		if (header != 0xd4u)
+			return error::corrupted_data;
+	}
+	else if constexpr (NumBytes == 2)
+	{
+		if (header != 0xd5u)
+			return error::corrupted_data;
+	}
+	else if constexpr (NumBytes == 4)
+	{
+		if (header != 0xd6u)
+			return error::corrupted_data;
+	}
+	else if constexpr (NumBytes == 8)
+	{
+		if (header != 0xd7u)
+			return error::corrupted_data;
+	}
+	else if constexpr (NumBytes == 16)
+	{
+		if (header != 0xd8u)
+			return error::corrupted_data;
+	}
+	else if constexpr (NumBytes <= nl<uint8_t>::max())
+	{
+		if (header != 0xc7u || b.read<uint8_t>() != NumBytes)
+			return error::corrupted_data;
+	}
+	else if constexpr (NumBytes <= nl<uint16_t>::max())
+	{
+		if (header != 0xc8u || b.read<uint16_t>() != NumBytes)
+			return error::corrupted_data;
+	}
+	else
+	{
+		if (header != 0xc9u || b.read<uint32_t>() != NumBytes)
+			return error::corrupted_data;
+	}
+
+	if (auto err = b.read<int8_t>(type); !!err)
+		return err;
+
+	value = b.skip(NumBytes);
+	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-template <typename K, typename T, typename H, typename EQ, typename A>
-error read(buffer& b, std::unordered_map<K, T, H, EQ, A>& value) noexcept
+template <typename T, int8_t TypeID>
+error read(buffer& b, ext<T, TypeID>& value) noexcept
 {
-	return read_map(b, value);
+	int8_t type = 0;
+	const void* data = nullptr;
+	if (auto err = read_ext<sizeof(T)>(b, type, data); !!err)
+		return err;
+
+	if (type != TypeID)
+		return error::corrupted_data;
+
+	memcpy(&value, data, sizeof(T));
+	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------

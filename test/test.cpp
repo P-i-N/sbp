@@ -108,6 +108,7 @@ void TestPerformance()
 	std::cout << "write/read 10 milion messages:" << std::endl;
 
 	/// Message with int
+	if (false)
 	{
 		struct Message final
 		{
@@ -118,6 +119,7 @@ void TestPerformance()
 	}
 
 	/// Complex message
+	if (false)
 	{
 		struct Message final
 		{
@@ -130,6 +132,24 @@ void TestPerformance()
 		};
 
 		TestWriteReadPerformance<Message>("complex", buffer, 10, 1000000);
+	}
+
+	/// Extensions
+	{
+		buffer.reset();
+
+		struct Matrix3x3
+		{
+			float m[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+		};
+
+		struct Messge final
+		{
+			sbp::ext<Matrix3x3> matrix;
+		} msg;
+
+		sbp::write(buffer, msg);
+		sbp::read(buffer, msg);
 	}
 }
 
