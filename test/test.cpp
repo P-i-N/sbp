@@ -83,7 +83,7 @@ void TestWriteReadPerformance(std::string_view text, sbp::buffer& b, size_t cycl
 		bool error = false;
 		for (size_t j = 0; j < 10 && !error; ++j)
 		{
-			b.reset_read_pos();
+			b.seek(0);
 			for (size_t i = 0; i < 1000000; ++i)
 			{
 				if (sbp::read(b, msg) != sbp::error::none)

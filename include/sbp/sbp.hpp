@@ -52,13 +52,8 @@ public:
 			_data = _stackBuffer;
 			_endCap = _data + stack_buffer_capacity;
 		}
-
+		
 		_readCursor = _writeCursor = _data;
-	}
-
-	void reset_read_pos() noexcept
-	{
-		_readCursor = _data;
 	}
 
 	void reserve(size_t newCapacity) noexcept
@@ -151,10 +146,12 @@ public:
 		return error::none;
 	}
 
-	const void *skip(size_t numBytes) noexcept
+	size_t tell() const noexcept { return _readCursor - _data; }
+
+	const void* seek(size_t offset) noexcept
 	{
-		const void* result = (_readCursor + numBytes <= _writeCursor) ? _readCursor : nullptr;
-		_readCursor += numBytes;
+		const void* result = _readCursor;
+		_readCursor = _data + offset;
 		return result;
 	}
 
@@ -564,7 +561,7 @@ error read(buffer& b, const char*& value) noexcept
 	if (auto err = read_string_length(b, length); !!err)
 		return err;
 
-	value = reinterpret_cast<const char *>(b.skip(length));
+	value = reinterpret_cast<const char *>(b.seek(b.tell() + length));
 	return b.valid();
 }
 
@@ -750,7 +747,7 @@ error read_ext(buffer& b, int8_t& type, const void*& value) noexcept
 	if (auto err = b.read<int8_t>(type); !!err)
 		return err;
 
-	value = b.skip(NumBytes);
+	value = b.seek(b.tell() + NumBytes);
 	return b.valid();
 }
 
