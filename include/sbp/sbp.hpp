@@ -124,6 +124,18 @@ public:
 	template <typename T>
 	buffer& write(T&& value) noexcept { return write<sizeof(T)>(&value); }
 
+	template <typename T>
+	buffer& write(uint8_t header, T&& value) noexcept
+	{
+		if (_writeCursor + 1 + sizeof(T) > _endCap)
+			reserve(capacity() * 2);
+
+		*_writeCursor++ = header;
+		memcpy(_writeCursor, &value, sizeof(T));
+		_writeCursor += sizeof(T);
+		return *this;
+	}
+
 	void read(void* data, size_t numBytes) noexcept
 	{
 		if (_readCursor + numBytes <= _writeCursor)
@@ -248,13 +260,13 @@ void write_int(buffer& b, int64_t value) noexcept
 	else if (value < 0 && value >= -32)
 		b.write(static_cast<int8_t>(value));
 	else if (value <= nl<int8_t>::max() && value >= nl<int8_t>::min())
-		b.write(uint8_t(0xd0u)).write(int8_t(value));
+		b.write(0xd0u, int8_t(value));
 	else if (value <= nl<int16_t>::max() && value >= nl<int16_t>::min())
-		b.write(uint8_t(0xd1u)).write(int16_t(value));
+		b.write(0xd1u, int16_t(value));
 	else if (value <= nl<int32_t>::max() && value >= nl<int32_t>::min())
-		b.write(uint8_t(0xd2u)).write(int32_t(value));
+		b.write(0xd2u, int32_t(value));
 	else
-		b.write(uint8_t(0xd3u)).write(value);
+		b.write(0xd3u, value);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -269,13 +281,13 @@ void write_uint(buffer& b, uint64_t value) noexcept
 	if (value <= nl<int8_t>::max())
 		b.write(static_cast<uint8_t>(value));
 	else if (value <= nl<uint8_t>::max())
-		b.write(uint8_t(0xccu)).write(static_cast<uint8_t>(value));
+		b.write(0xccu, uint8_t(value));
 	else if (value <= nl<uint16_t>::max())
-		b.write(uint8_t(0xcdu)).write(static_cast<uint16_t>(value));
+		b.write(0xcdu, uint16_t(value));
 	else if (value <= nl<uint32_t>::max())
-		b.write(uint8_t(0xceu)).write(static_cast<uint32_t>(value));
+		b.write(0xceu, uint32_t(value));
 	else
-		b.write(uint8_t(0xcfu)).write(value);
+		b.write(0xcfu, value);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -290,11 +302,11 @@ void write_str(buffer& b, const char* value, size_t length) noexcept
 	if (length <= 31)
 		b.write(uint8_t(uint8_t(0b10100000u) | static_cast<uint8_t>(length)));
 	else if (length <= nl<uint8_t>::max())
-		b.write(uint8_t(0xd9u)).write(static_cast<uint8_t>(length));
+		b.write(0xd9u, uint8_t(length));
 	else if (length <= nl<uint16_t>::max())
-		b.write(uint8_t(0xdau)).write(static_cast<uint16_t>(length));
+		b.write(0xdau, uint16_t(length));
 	else
-		b.write(uint8_t(0xdbu)).write(static_cast<uint32_t>(length));
+		b.write(0xdbu, uint32_t(length));
 
 	b.write(value, length);
 }
@@ -317,9 +329,9 @@ void write_array(buffer& b, const T* values, size_t numValues) noexcept
 	if (numValues <= 15)
 		b.write(uint8_t(uint8_t(0b10010000u) | static_cast<uint8_t>(numValues)));
 	else if (numValues <= nl<uint16_t>::max())
-		b.write(uint8_t(0xdcu)).write(uint16_t(numValues));
+		b.write(0xdcu, uint16_t(numValues));
 	else
-		b.write(uint8_t(0xddu)).write(uint32_t(numValues));
+		b.write(0xddu, uint32_t(numValues));
 
 	for (size_t i = 0; i < numValues; ++i)
 		write(b, values[i]);
@@ -332,9 +344,9 @@ void write_array_fixed(buffer& b, const T* values) noexcept
 	if constexpr (NumValues <= 15)
 		b.write(uint8_t(uint8_t(0b10010000u) | static_cast<uint8_t>(NumValues)));
 	else if constexpr (NumValues <= nl<uint16_t>::max())
-		b.write(uint8_t(0xdcu)).write(uint16_t(NumValues));
+		b.write(0xdcu, uint16_t(NumValues));
 	else
-		b.write(uint8_t(0xddu)).write(uint32_t(NumValues));
+		b.write(0xddu, uint32_t(NumValues));
 
 	for (size_t i = 0; i < NumValues; ++i)
 		write(b, values[i]);
@@ -359,9 +371,9 @@ void write_map(buffer& b, const T& value) noexcept
 	if (numValues <= 15)
 		b.write(uint8_t(uint8_t(0b10000000u) | static_cast<uint8_t>(numValues)));
 	else if (numValues <= nl<uint16_t>::max())
-		b.write(uint8_t(0xdeu)).write(uint16_t(numValues));
+		b.write(0xdeu, uint16_t(numValues));
 	else
-		b.write(uint8_t(0xdfu)).write(uint32_t(numValues));
+		b.write(0xdfu, uint32_t(numValues));
 
 	for (const auto& kvp : value)
 	{
@@ -381,11 +393,11 @@ void write(buffer& b, const std::unordered_map<K, T, H, EQ, A>& value) noexcept 
 void write_bin(buffer& b, const void* data, size_t numBytes) noexcept
 {
 	if (numBytes <= nl<uint8_t>::max())
-		b.write(uint8_t(0xc4u)).write(uint8_t(numBytes));
+		b.write(0xc4u, uint8_t(numBytes));
 	else if (numBytes <= nl<uint16_t>::max())
-		b.write(uint8_t(0xc5u)).write(uint16_t(numBytes));
+		b.write(0xc5u, uint16_t(numBytes));
 	else
-		b.write(uint8_t(0xc6u)).write(uint32_t(numBytes));
+		b.write(0xc6u, uint32_t(numBytes));
 
 	b.write(data, numBytes);
 }
@@ -395,46 +407,46 @@ template <size_t NumBytes>
 void write_ext(buffer& b, int8_t type, const void* data) noexcept
 {
 	if constexpr (NumBytes == 1)
-		b.write(uint8_t(0xd4u));
+		b.write(0xd4u, type);
 	else if constexpr (NumBytes == 2)
-		b.write(uint8_t(0xd5u));
+		b.write(0xd5u, type);
 	else if constexpr (NumBytes == 4)
-		b.write(uint8_t(0xd6u));
+		b.write(0xd6u, type);
 	else if constexpr (NumBytes == 8)
-		b.write(uint8_t(0xd7u));
+		b.write(0xd7u, type);
 	else if constexpr (NumBytes == 16)
-		b.write(uint8_t(0xd8u));
+		b.write(0xd8u, type);
 	else if constexpr (NumBytes <= nl<uint8_t>::max())
-		b.write(uint8_t(0xc7u)).write(uint8_t(NumBytes));
+		b.write(0xc7u, uint8_t(NumBytes)).write(type);
 	else if constexpr (NumBytes <= nl<uint16_t>::max())
-		b.write(uint8_t(0xc8u)).write(uint16_t(NumBytes));
+		b.write(0xc8u, uint16_t(NumBytes)).write(type);
 	else
-		b.write(uint8_t(0xc9u)).write(uint32_t(NumBytes));
+		b.write(0xc9u, uint32_t(NumBytes)).write(type);
 
-	b.write(type).write(data, NumBytes);
+	b.write(data, NumBytes);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 void write_ext(buffer& b, int8_t type, const void* data, size_t numBytes) noexcept
 {
 	if (numBytes == 1)
-		b.write(uint8_t(0xd4u));
+		b.write(0xd4u, type);
 	else if (numBytes == 2)
-		b.write(uint8_t(0xd5u));
+		b.write(0xd5u, type);
 	else if (numBytes == 4)
-		b.write(uint8_t(0xd6u));
+		b.write(0xd6u, type);
 	else if (numBytes == 8)
-		b.write(uint8_t(0xd7u));
+		b.write(0xd7u, type);
 	else if (numBytes == 16)
-		b.write(uint8_t(0xd8u));
+		b.write(0xd8u, type);
 	else if (numBytes <= nl<uint8_t>::max())
-		b.write(uint8_t(0xc7u)).write(uint8_t(numBytes));
+		b.write(0xc7u, uint8_t(numBytes)).write(type);
 	else if (numBytes <= nl<uint16_t>::max())
-		b.write(uint8_t(0xc8u)).write(uint16_t(numBytes));
+		b.write(0xc8u, uint16_t(numBytes)).write(type);
 	else
-		b.write(uint8_t(0xc9u)).write(uint32_t(numBytes));
+		b.write(0xc9u, uint32_t(numBytes)).write(type);
 
-	b.write(type).write(data, numBytes);
+	b.write(data, numBytes);
 }
 
 //---------------------------------------------------------------------------------------------------------------------
