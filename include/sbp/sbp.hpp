@@ -124,6 +124,9 @@ public:
 	template <typename T>
 	T read() noexcept
 	{
+		if constexpr (sizeof(T) == 1)
+			return (_readCursor < _writeCursor) ? *reinterpret_cast<const T*>(_readCursor++) : T(0);
+
 		_readCursor += sizeof(T);
 		return (_readCursor <= _writeCursor) ? *reinterpret_cast<const T*>(_readCursor - sizeof(T)) : T(0);
 	}
