@@ -2,7 +2,7 @@
 Header only library for serializing C++ structs into [MessagePack](https://github.com/msgpack/msgpack/blob/master/spec.md) binary form with minimal boilerplate code. Requires C++17 and MSVC compiler (but should probably work with other compilers as well). Obviously, this is just a fun project, highly experimental, avoid using it during _rocket surgeries_.
 
 ## What is this good for?
-
+If you need to serialize small non-POD structures (i.e., you can't just use plain `memcpy`), this library might provide good quick solution. There is no need to manually write serialization and deserialization code for each and every struct you have. There aren't even any message definition files (like `.proto` files in Google's [Protocol Buffers](https://developers.google.com/protocol-buffers)). Everything is resolved during compilation.
 
 ## Quick example
 ```cpp
@@ -26,6 +26,9 @@ ud.lucky_numbers = { 69, 420, 1984 };
 // Serialize it into a buffer
 sbp::buffer buff;
 sbp::write(buff, ud);
+
+// Send it out...
+SendItOut(buff.data(), buff.size());
 ```
 That's it! As long as your structs are simple enough (see limitations below), there is no need to write any extra serialization or deserialization code.
 
@@ -79,8 +82,8 @@ c0 07                   : 1984
 
 - C-style arrays do not work, you must use `std::array` instead:
   - ```cpp
-	struct Foo { int numbers[5]; };            // Will not serialize!
-	struct Bar { std::array<int, 5> numbers; } // OK
+	struct Foo { int numbers[5]; };             // Will not serialize!
+	struct Bar { std::array<int, 5> numbers; }; // OK
     ```
 
 - if you really want to use inheritance (or even C-style arrays), you have to provide template specializations for `std::tuple_size`, `std::tuple_element` and `std::get`
