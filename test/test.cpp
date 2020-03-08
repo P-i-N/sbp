@@ -68,10 +68,10 @@ void TestWriteReadPerformance(std::string_view text, sbp::buffer& b, size_t cycl
 		std::string str = std::string(text) + " W";
 		Stopwatch sw{ str.c_str() };
 
-		for (size_t j = 0; j < 10; ++j)
+		for (size_t j = 0; j < cycles; ++j)
 		{
 			b.reset(false);
-			for (size_t i = 0; i < 1000000; ++i) sbp::write(b, msg);
+			for (size_t i = 0; i < opsPerCycle; ++i) sbp::write(b, msg);
 		}
 	}
 
@@ -81,10 +81,10 @@ void TestWriteReadPerformance(std::string_view text, sbp::buffer& b, size_t cycl
 		Stopwatch sw{ str.c_str() };
 
 		bool error = false;
-		for (size_t j = 0; j < 10 && !error; ++j)
+		for (size_t j = 0; j < cycles && !error; ++j)
 		{
 			b.seek(0);
-			for (size_t i = 0; i < 1000000; ++i)
+			for (size_t i = 0; i < opsPerCycle; ++i)
 			{
 				if (sbp::read(b, msg) != sbp::error::none)
 				{
@@ -105,7 +105,7 @@ void TestPerformance()
 	sbp::buffer buffer;
 	buffer.reserve(1024 * 1024 * 128); // Reserve 128 MB
 
-	std::cout << "write/read 10 milion messages:" << std::endl;
+	std::cout << "write/read 100 milion messages:" << std::endl;
 
 	/// Message with int
 	{
@@ -114,7 +114,7 @@ void TestPerformance()
 			int value = 1234567890;
 		};
 
-		TestWriteReadPerformance<Message>("    int", buffer, 10, 1000000);
+		TestWriteReadPerformance<Message>("    int", buffer, 100, 1000000);
 	}
 
 	/// Complex message
@@ -129,7 +129,7 @@ void TestPerformance()
 			std::array<int, 5> lucky_numbers = { 1, 2, 3, 4, 5 };
 		};
 
-		TestWriteReadPerformance<Message>("complex", buffer, 10, 1000000);
+		TestWriteReadPerformance<Message>("complex", buffer, 100, 1000000);
 	}
 
 	/// Extensions
@@ -144,7 +144,7 @@ void TestPerformance()
 			sbp::ext<Matrix3x3> matrix;
 		};
 
-		TestWriteReadPerformance<Message>("    ext", buffer, 10, 1000000);
+		TestWriteReadPerformance<Message>("    ext", buffer, 100, 1000000);
 	}
 }
 
