@@ -24,7 +24,7 @@ constexpr auto operator!(error err) { return err == error::none; }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-class buffer final
+class buffer
 {
 public:
 	buffer() noexcept
@@ -223,6 +223,14 @@ public:
 
 private:
 	T _value;
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+struct bin final
+{
+	const void* data;
+	size_t size;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -427,6 +435,9 @@ void write_bin(buffer& b, const void* data, size_t numBytes) noexcept
 
 	b.write(data, numBytes);
 }
+
+//---------------------------------------------------------------------------------------------------------------------
+void write(buffer& b, const bin& value) noexcept { write_bin(b, value.data, value.size); }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <size_t NumBytes>
@@ -748,6 +759,12 @@ error read(buffer& b, std::map<K, T, P, A>& value) noexcept { return read_map(b,
 template <typename K, typename T, typename H, typename EQ, typename A>
 error read(buffer& b, std::unordered_map<K, T, H, EQ, A>& value) noexcept { return read_map(b, value); }
 
+//---------------------------------------------------------------------------------------------------------------------
+error read(buffer& b, bin& value) noexcept
+{
+	// TODO
+	return b.valid();
+}
 //---------------------------------------------------------------------------------------------------------------------
 template <size_t NumBytes>
 error read_ext(buffer& b, int8_t& type, const void*& value) noexcept
