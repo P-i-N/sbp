@@ -37,134 +37,39 @@ public:
 	~buffer() { reset(); }
 
 	uint8_t* data() noexcept { return _data; }
+
 	const uint8_t* data() const noexcept { return _data; }
+
 	size_t size() const noexcept { return static_cast<size_t>(_writeCursor - _data); }
+
 	size_t capacity() const noexcept { return static_cast<size_t>(_endCap - _data); }
+	
 	error valid() const noexcept { return (_readCursor <= _writeCursor) ? error::none : error::unexpected_end; }
 
-	void reset(bool freeMemory = true) noexcept
-	{
-		if (freeMemory)
-		{
-			if (_data != _stackBuffer)
-				delete[] _data;
+	void reset(bool freeMemory = true) noexcept;
 
-			_data = _stackBuffer;
-			_endCap = _data + stack_buffer_capacity;
-		}
-		
-		_readCursor = _writeCursor = _data;
-	}
+	void reserve(size_t newCapacity) noexcept;
 
-	void reserve(size_t newCapacity) noexcept
-	{
-		if (newCapacity > capacity())
-		{
-			auto readOffset = _readCursor - _data;
-			auto writeOffset = _writeCursor - _data;
+	void write(const void* data, size_t numBytes) noexcept;
 
-			auto* newData = new uint8_t[newCapacity];
-			memcpy(newData, _data, writeOffset);
+	template <size_t NumBytes> void write(const void* data) noexcept;
 
-			if (_data != _stackBuffer)
-				delete[] _data;
+	template <typename T> void write(T&& value) noexcept { write<sizeof(T)>(&value); }
 
-			_data = newData;
-			_readCursor = _data + readOffset;
-			_writeCursor = _data + writeOffset;
-			_endCap = _data + newCapacity;
-		}
-	}
+	template <typename T> void write(uint8_t header, T&& value) noexcept;
 
-	void write(const void* data, size_t numBytes) noexcept
-	{
-		ensure_capacity(numBytes);
-		memcpy(_writeCursor, data, numBytes);
-		_writeCursor += numBytes;
-	}
+	void read(void* data, size_t numBytes) noexcept;
 
-	template <size_t NumBytes>
-	void write(const void* data) noexcept
-	{
-		if constexpr (NumBytes == 1)
-		{
-			if (_writeCursor == _endCap)
-				reserve(capacity() * 2);
+	template <typename T> T read() noexcept;
 
-			*_writeCursor++ = *reinterpret_cast<const uint8_t*>(data);
-		}
-		else
-		{
-			ensure_capacity(NumBytes);
-			memcpy(_writeCursor, data, NumBytes);
-			_writeCursor += NumBytes;
-		}
-	}
-
-	template <typename T>
-	void write(T&& value) noexcept { write<sizeof(T)>(&value); }
-
-	template <typename T>
-	void write(uint8_t header, T&& value) noexcept
-	{
-		ensure_capacity(1 + sizeof(T));
-		*_writeCursor++ = header;
-		memcpy(_writeCursor, &value, sizeof(T));
-		_writeCursor += sizeof(T);
-	}
-
-	void read(void* data, size_t numBytes) noexcept
-	{
-		if (_readCursor + numBytes <= _writeCursor)
-			memcpy(data, _readCursor, numBytes);
-
-		_readCursor += numBytes;
-	}
-
-	template <typename T>
-	T read() noexcept
-	{
-		if constexpr (sizeof(T) == 1)
-			return (_readCursor < _writeCursor) ? *reinterpret_cast<const T*>(_readCursor++) : T(0);
-
-		_readCursor += sizeof(T);
-		return (_readCursor <= _writeCursor) ? *reinterpret_cast<const T*>(_readCursor - sizeof(T)) : T(0);
-	}
-
-	template <typename RT, typename T>
-	error read(T& result) noexcept
-	{
-		if constexpr (sizeof(T) < sizeof(RT))
-			return error::corrupted_data;
-
-		if (_readCursor + sizeof(RT) > _writeCursor)
-			return error::unexpected_end;
-
-		result = static_cast<T>(*reinterpret_cast<const RT*>(_readCursor));
-		_readCursor += sizeof(RT);
-		return error::none;
-	}
+	template <typename RT, typename T> error read(T& result) noexcept;
 
 	size_t tell() const noexcept { return _readCursor - _data; }
 
-	const void* seek(size_t offset) noexcept
-	{
-		const void* result = _readCursor;
-		_readCursor = _data + offset;
-		return result;
-	}
+	const void* seek(size_t offset) noexcept;
 
 private:
-	void ensure_capacity(size_t NumBytes) noexcept
-	{
-		if (_writeCursor + NumBytes > _endCap)
-		{
-			auto cap1 = size() + NumBytes;
-			auto cap2 = capacity() * 2;
-
-			reserve((cap1 > cap2) ? cap1 : cap2);
-		}
-	}
+	void ensure_capacity(size_t NumBytes) noexcept;
 
 	static constexpr size_t stack_buffer_capacity = 256;
 
@@ -175,6 +80,134 @@ private:
 	uint8_t* _data = nullptr;
 	uint8_t _stackBuffer[stack_buffer_capacity] = { };
 };
+
+//---------------------------------------------------------------------------------------------------------------------
+inline void buffer::reset(bool freeMemory) noexcept
+{
+	if (freeMemory)
+	{
+		if (_data != _stackBuffer)
+			delete[] _data;
+
+		_data = _stackBuffer;
+		_endCap = _data + stack_buffer_capacity;
+	}
+
+	_readCursor = _writeCursor = _data;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+inline void buffer::reserve(size_t newCapacity) noexcept
+{
+	if (newCapacity > capacity())
+	{
+		auto readOffset = _readCursor - _data;
+		auto writeOffset = _writeCursor - _data;
+
+		auto* newData = new uint8_t[newCapacity];
+		memcpy(newData, _data, writeOffset);
+
+		if (_data != _stackBuffer)
+			delete[] _data;
+
+		_data = newData;
+		_readCursor = _data + readOffset;
+		_writeCursor = _data + writeOffset;
+		_endCap = _data + newCapacity;
+	}
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+inline void buffer::write(const void* data, size_t numBytes) noexcept
+{
+	ensure_capacity(numBytes);
+	memcpy(_writeCursor, data, numBytes);
+	_writeCursor += numBytes;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+template <size_t NumBytes>
+inline void buffer::write(const void* data) noexcept
+{
+	if constexpr (NumBytes == 1)
+	{
+		if (_writeCursor == _endCap)
+			reserve(capacity() * 2);
+
+		*_writeCursor++ = *reinterpret_cast<const uint8_t*>(data);
+	}
+	else
+	{
+		ensure_capacity(NumBytes);
+		memcpy(_writeCursor, data, NumBytes);
+		_writeCursor += NumBytes;
+	}
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename T>
+inline void buffer::write(uint8_t header, T&& value) noexcept
+{
+	ensure_capacity(1 + sizeof(T));
+	*_writeCursor++ = header;
+	memcpy(_writeCursor, &value, sizeof(T));
+	_writeCursor += sizeof(T);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+inline void buffer::read(void* data, size_t numBytes) noexcept
+{
+	if (_readCursor + numBytes <= _writeCursor)
+		memcpy(data, _readCursor, numBytes);
+
+	_readCursor += numBytes;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename T>
+inline T buffer::read() noexcept
+{
+	if constexpr (sizeof(T) == 1)
+		return (_readCursor < _writeCursor) ? *reinterpret_cast<const T*>(_readCursor++) : T(0);
+
+	_readCursor += sizeof(T);
+	return (_readCursor <= _writeCursor) ? *reinterpret_cast<const T*>(_readCursor - sizeof(T)) : T(0);
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename RT, typename T>
+inline error buffer::read(T& result) noexcept
+{
+	if constexpr (sizeof(T) < sizeof(RT))
+		return error::corrupted_data;
+
+	if (_readCursor + sizeof(RT) > _writeCursor)
+		return error::unexpected_end;
+
+	result = static_cast<T>(*reinterpret_cast<const RT*>(_readCursor));
+	_readCursor += sizeof(RT);
+	return error::none;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+inline const void* buffer::seek(size_t offset) noexcept
+{
+	const void* result = _readCursor;
+	_readCursor = _data + offset;
+	return result;
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+inline void buffer::ensure_capacity(size_t NumBytes) noexcept
+{
+	if (_writeCursor + NumBytes > _endCap)
+	{
+		auto cap1 = size() + NumBytes;
+		auto cap2 = capacity() * 2;
+
+		reserve((cap1 > cap2) ? cap1 : cap2);
+	}
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
