@@ -12,15 +12,20 @@
 #include <vector>
 
 namespace sbp {
-
-enum class error
+	
+struct error final
 {
-	none = 0,
-	corrupted_data,
-	unexpected_end
-};
+	enum
+	{
+		none = 0,
+		corrupted_data,
+		unexpected_end
+	};
 
-constexpr auto operator!(error err) { return err == error::none; }
+	int value = none;
+
+	operator int() const noexcept { return value; }
+};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -44,7 +49,7 @@ public:
 
 	size_t capacity() const noexcept { return static_cast<size_t>(_endCap - _data); }
 	
-	error valid() const noexcept { return (_readCursor <= _writeCursor) ? error::none : error::unexpected_end; }
+	error valid() const noexcept { return (_readCursor <= _writeCursor) ? error() : error{ error::unexpected_end }; }
 
 	void reset(bool freeMemory = true) noexcept;
 
@@ -179,14 +184,14 @@ template <typename RT, typename T>
 inline error buffer::read(T& result) noexcept
 {
 	if constexpr (sizeof(T) < sizeof(RT))
-		return error::corrupted_data;
+		return { error::corrupted_data };
 
 	if (_readCursor + sizeof(RT) > _writeCursor)
-		return error::unexpected_end;
+		return { error::unexpected_end };
 
 	result = static_cast<T>(*reinterpret_cast<const RT*>(_readCursor));
 	_readCursor += sizeof(RT);
-	return error::none;
+	return { error::none };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -549,7 +554,7 @@ error read_int(buffer& b, T& value) noexcept
 	else if (header == 0xd3u)
 		return b.read<int64_t>(value);
 
-	return error::corrupted_data;
+	return { error::corrupted_data };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -576,7 +581,7 @@ error read_uint(buffer& b, T& value) noexcept
 	else if (header == 0xcfu)
 		return b.read<uint64_t>(value);
 
-	return error::corrupted_data;
+	return { error::corrupted_data };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -600,14 +605,14 @@ error read_string_length(buffer& b, size_t& value) noexcept
 	else if (header == 0xdbu)
 		return b.read<uint32_t>(value);
 
-	return error::corrupted_data;
+	return { error::corrupted_data };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 error read(buffer& b, std::string& value) noexcept
 {
 	size_t length = 0;
-	if (auto err = read_string_length(b, length); !!err)
+	if (auto err = read_string_length(b, length))
 		return err;
 
 	value.resize(length);
@@ -619,7 +624,7 @@ error read(buffer& b, std::string& value) noexcept
 error read(buffer& b, const char*& value) noexcept
 {
 	size_t length = 0;
-	if (auto err = read_string_length(b, length); !!err)
+	if (auto err = read_string_length(b, length))
 		return err;
 
 	value = reinterpret_cast<const char *>(b.seek(b.tell() + length));
@@ -630,7 +635,7 @@ error read(buffer& b, const char*& value) noexcept
 error read(buffer& b, float& value) noexcept
 {
 	if (b.read<uint8_t>() != 0xcau)
-		return error::corrupted_data;
+		return { error::corrupted_data };
 
 	return b.read<float>(value);
 }
@@ -639,7 +644,7 @@ error read(buffer& b, float& value) noexcept
 error read(buffer& b, double& value) noexcept
 {
 	if (b.read<uint8_t>() != 0xcbu)
-		return error::corrupted_data;
+		return { error::corrupted_data };
 
 	return b.read<double>(value);
 }
@@ -650,10 +655,10 @@ error read(buffer& b, bool& value) noexcept
 	if (auto header = b.read<uint8_t>(); header == 0xc2u || header == 0xc3u)
 	{
 		value = (header == 0xc3u);
-		return error::none;
+		return { error::none };
 	}
 
-	return error::corrupted_data;
+	return { error::corrupted_data };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -662,14 +667,14 @@ error read_array_length(buffer& b, size_t& value) noexcept
 	if (auto header = b.read<uint8_t>(); (header & 0b11110000u) == 0b10010000u)
 	{
 		value = header & 0b00001111u;
-		return error::none;
+		return { error::none };
 	}
 	else if (header == 0xdcu)
 		return b.read<uint16_t>(value);
 	else if (header == 0xddu)
 		return b.read<uint32_t>(value);
 
-	return error::corrupted_data;
+	return { error::corrupted_data };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -677,14 +682,14 @@ template <typename T, typename A>
 error read(buffer& b, std::vector<T, A>& value) noexcept
 {
 	size_t numValues = 0;
-	if (auto err = read_array_length(b, numValues); !!err)
+	if (auto err = read_array_length(b, numValues))
 		return err;
 
 	value.clear();
 	value.reserve(value.size() + numValues);
 	for (size_t i = 0; i < numValues; ++i)
 	{
-		if (auto err = read(b, value.emplace_back()); !!err)
+		if (auto err = read(b, value.emplace_back()))
 			return err;
 	}
 
@@ -696,15 +701,15 @@ template <typename T, size_t NumValues>
 error read(buffer& b, std::array<T, NumValues>& value) noexcept
 {
 	size_t numValues = 0;
-	if (auto err = read_array_length(b, numValues); !!err)
+	if (auto err = read_array_length(b, numValues))
 		return err;
 
 	if (numValues != NumValues)
-		return error::corrupted_data;
+		return { error::corrupted_data };
 
 	for (size_t i = 0; i < NumValues; ++i)
 	{
-		if (auto err = read(b, value[i]); !!err)
+		if (auto err = read(b, value[i]))
 			return err;
 	}
 
@@ -717,14 +722,14 @@ error read_map_length(buffer& b, size_t& value) noexcept
 	if (auto header = b.read<uint8_t>(); (header & 0b11110000u) == 0b10000000u)
 	{
 		value = header & 0b00001111u;
-		return error::none;
+		return { error::none };
 	}
 	else if (header == 0xdeu)
 		return b.read<uint16_t>(value);
 	else if (header == 0xdfu)
 		return b.read<uint32_t>(value);
 
-	return error::corrupted_data;
+	return { error::corrupted_data };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
@@ -732,7 +737,7 @@ template <typename T>
 error read_map(buffer& b, T& value) noexcept
 {
 	size_t numValues = 0;
-	if (auto err = read_map_length(b, numValues); !!err)
+	if (auto err = read_map_length(b, numValues))
 		return err;
 
 	std::pair<typename T::key_type, typename T::mapped_type> kvp;
@@ -740,10 +745,10 @@ error read_map(buffer& b, T& value) noexcept
 	value.clear();
 	for (size_t i = 0; i < numValues; ++i)
 	{
-		if (auto err = read(b, kvp.first); !!err)
+		if (auto err = read(b, kvp.first))
 			return err;
 
-		if (auto err = read(b, kvp.second); !!err)
+		if (auto err = read(b, kvp.second))
 			return err;
 
 		value.emplace(std::move(kvp));
@@ -773,45 +778,45 @@ error read_ext(buffer& b, int8_t& type, const void*& value) noexcept
 	if constexpr (NumBytes == 1)
 	{
 		if (header != 0xd4u)
-			return error::corrupted_data;
+			return { error::corrupted_data };
 	}
 	else if constexpr (NumBytes == 2)
 	{
 		if (header != 0xd5u)
-			return error::corrupted_data;
+			return { error::corrupted_data };
 	}
 	else if constexpr (NumBytes == 4)
 	{
 		if (header != 0xd6u)
-			return error::corrupted_data;
+			return { error::corrupted_data };
 	}
 	else if constexpr (NumBytes == 8)
 	{
 		if (header != 0xd7u)
-			return error::corrupted_data;
+			return { error::corrupted_data };
 	}
 	else if constexpr (NumBytes == 16)
 	{
 		if (header != 0xd8u)
-			return error::corrupted_data;
+			return { error::corrupted_data };
 	}
 	else if constexpr (NumBytes <= nl<uint8_t>::max())
 	{
 		if (header != 0xc7u || b.read<uint8_t>() != NumBytes)
-			return error::corrupted_data;
+			return { error::corrupted_data };
 	}
 	else if constexpr (NumBytes <= nl<uint16_t>::max())
 	{
 		if (header != 0xc8u || b.read<uint16_t>() != NumBytes)
-			return error::corrupted_data;
+			return { error::corrupted_data };
 	}
 	else
 	{
 		if (header != 0xc9u || b.read<uint32_t>() != NumBytes)
-			return error::corrupted_data;
+			return { error::corrupted_data };
 	}
 
-	if (auto err = b.read<int8_t>(type); !!err)
+	if (auto err = b.read<int8_t>(type))
 		return err;
 
 	value = b.seek(b.tell() + NumBytes);
@@ -824,11 +829,11 @@ error read(buffer& b, ext<T, TypeID>& value) noexcept
 {
 	int8_t type = 0;
 	const void* data = nullptr;
-	if (auto err = read_ext<sizeof(T)>(b, type, data); !!err)
+	if (auto err = read_ext<sizeof(T)>(b, type, data))
 		return err;
 
 	if (type != TypeID)
-		return error::corrupted_data;
+		return { error::corrupted_data };
 
 	memcpy(&value, data, sizeof(T));
 	return b.valid();
@@ -844,20 +849,20 @@ error read(buffer& b, std::tuple<Types...>& t) noexcept
 	if constexpr (std::is_enum_v<Type>)
 	{
 		auto underlyingValue = std::underlying_type_t<Type>(0);
-		if (auto err = read(b, underlyingValue); !!err)
+		if (auto err = read(b, underlyingValue))
 			return err;
 
 		value = static_cast<Type>(underlyingValue);
 	}
 	else
 	{
-		if (auto err = read(b, value); !!err)
+		if (auto err = read(b, value))
 			return err;
 	}
 
 	if constexpr (I + 1 != sizeof...(Types))
 	{
-		if (auto err = read<I + 1>(b, t); !!err)
+		if (auto err = read<I + 1>(b, t))
 			return err;
 	}
 
