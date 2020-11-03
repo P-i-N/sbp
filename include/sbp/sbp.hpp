@@ -1,18 +1,38 @@
 #pragma once
 
-#include <array>
+#if !defined(SBP_NOEXCEPT)
+	#define SBP_NOEXCEPT noexcept
+#endif
+
+#if defined(_MSC_VER) && !defined(SBP_MSVC)
+	#define SBP_MSVC
+#endif
+
+#if !defined(SBP_FORCE_INLINE)
+	#if defined(SBP_MSVC)
+		#define SBP_FORCE_INLINE __forceinline
+	#else
+		#define SBP_FORCE_INLINE inline
+	#endif
+#endif
+
+#if !defined(SBP_EXTENSION)
+#define SBP_EXTENSION(_Type, _TypeID) namespace sbp::detail { \
+	inline void write( buffer &b, const _Type &value ) { write_ext<sizeof(_Type)>(b, (_TypeID), &value); } \
+	inline error read( buffer &b, _Type &value ) { \
+		const void* data = nullptr; \
+		if (auto err = read_ext<sizeof(_Type), (_TypeID)>(b, data)) return err; \
+		memcpy( &value, data, sizeof( _Type ) ); \
+		return b.valid(); } \
+	}
+#endif
+
 #include <cstdint>
-#include <map>
-#include <string>
-#include <tuple>
-#include <typeinfo>
-#include <type_traits>
-#include <unordered_map>
 #include <utility>
-#include <vector>
+#include <type_traits>
 
 namespace sbp {
-	
+
 struct error final
 {
 	enum
@@ -24,7 +44,7 @@ struct error final
 
 	int value = none;
 
-	operator int() const noexcept { return value; }
+	operator int() const SBP_NOEXCEPT { return value; }
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -32,7 +52,7 @@ struct error final
 class buffer
 {
 public:
-	buffer() noexcept
+	buffer() SBP_NOEXCEPT
 	{
 		_data = _stackBuffer;
 		_readCursor = _writeCursor = _data;
@@ -41,57 +61,58 @@ public:
 
 	~buffer() { reset(); }
 
-	uint8_t* data() noexcept { return _data; }
+	uint8_t *data() SBP_NOEXCEPT { return _data; }
 
-	const uint8_t* data() const noexcept { return _data; }
+	const uint8_t *data() const SBP_NOEXCEPT { return _data; }
 
-	size_t size() const noexcept { return static_cast<size_t>(_writeCursor - _data); }
+	size_t size() const SBP_NOEXCEPT { return static_cast<size_t>( _writeCursor - _data ); }
 
-	size_t capacity() const noexcept { return static_cast<size_t>(_endCap - _data); }
-	
-	error valid() const noexcept { return (_readCursor <= _writeCursor) ? error() : error{ error::unexpected_end }; }
+	size_t capacity() const SBP_NOEXCEPT { return static_cast<size_t>( _endCap - _data ); }
 
-	void reset(bool freeMemory = true) noexcept;
+	error valid() const SBP_NOEXCEPT { return ( _readCursor <= _writeCursor ) ? error() : error{ error::unexpected_end }; }
 
-	void reserve(size_t newCapacity) noexcept;
+	void reset( bool freeMemory = true ) SBP_NOEXCEPT;
 
-	void write(const void* data, size_t numBytes) noexcept;
+	void reserve( size_t newCapacity ) SBP_NOEXCEPT;
 
-	template <size_t NumBytes> void write(const void* data) noexcept;
+	void write( const void *data, size_t numBytes ) SBP_NOEXCEPT;
 
-	template <typename T> void write(T&& value) noexcept { write<sizeof(T)>(&value); }
+	template <size_t NumBytes> void write( const void *data ) SBP_NOEXCEPT;
 
-	template <typename T> void write(uint8_t header, T&& value) noexcept;
+	template <typename T> void write( T &&value ) SBP_NOEXCEPT { write<sizeof( T )>( &value ); }
 
-	void read(void* data, size_t numBytes) noexcept;
+	template <typename T> void write( uint8_t header, T &&value ) SBP_NOEXCEPT;
 
-	template <typename T> T read() noexcept;
+	void read( void *data, size_t numBytes ) SBP_NOEXCEPT;
 
-	template <typename RT, typename T> error read(T& result) noexcept;
+	template <typename T> T read() SBP_NOEXCEPT;
 
-	size_t tell() const noexcept { return _readCursor - _data; }
+	template <typename RT, typename T> error read( T &result ) SBP_NOEXCEPT;
 
-	const void* seek(size_t offset) noexcept;
+	size_t tell() const SBP_NOEXCEPT { return _readCursor - _data; }
+
+	const void *seek( size_t offset ) SBP_NOEXCEPT;
 
 private:
-	void ensure_capacity(size_t NumBytes) noexcept;
+	void ensure_capacity( size_t NumBytes ) SBP_NOEXCEPT;
 
 	static constexpr size_t stack_buffer_capacity = 256;
 
-	uint8_t* _writeCursor = nullptr;
-	const uint8_t* _readCursor = nullptr;
-	const uint8_t* _endCap = nullptr;
+	uint8_t *_data = nullptr;
 
-	uint8_t* _data = nullptr;
+	uint8_t *_writeCursor = nullptr;
+	const uint8_t *_readCursor = nullptr;
+	const uint8_t *_endCap = nullptr;
+
 	uint8_t _stackBuffer[stack_buffer_capacity] = { };
 };
 
 //---------------------------------------------------------------------------------------------------------------------
-inline void buffer::reset(bool freeMemory) noexcept
+inline void buffer::reset( bool freeMemory ) SBP_NOEXCEPT
 {
-	if (freeMemory)
+	if ( freeMemory )
 	{
-		if (_data != _stackBuffer)
+		if ( _data != _stackBuffer )
 			delete[] _data;
 
 		_data = _stackBuffer;
@@ -102,17 +123,17 @@ inline void buffer::reset(bool freeMemory) noexcept
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-inline void buffer::reserve(size_t newCapacity) noexcept
+inline void buffer::reserve( size_t newCapacity ) SBP_NOEXCEPT
 {
-	if (newCapacity > capacity())
+	if ( newCapacity > capacity() )
 	{
 		auto readOffset = _readCursor - _data;
 		auto writeOffset = _writeCursor - _data;
 
-		auto* newData = new uint8_t[newCapacity];
-		memcpy(newData, _data, writeOffset);
+		auto *newData = new uint8_t[newCapacity];
+		memcpy( newData, _data, writeOffset );
 
-		if (_data != _stackBuffer)
+		if ( _data != _stackBuffer )
 			delete[] _data;
 
 		_data = newData;
@@ -123,124 +144,102 @@ inline void buffer::reserve(size_t newCapacity) noexcept
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-inline void buffer::write(const void* data, size_t numBytes) noexcept
+SBP_FORCE_INLINE void buffer::write( const void *data, size_t numBytes ) SBP_NOEXCEPT
 {
-	ensure_capacity(numBytes);
-	memcpy(_writeCursor, data, numBytes);
+	ensure_capacity( numBytes );
+	memcpy( _writeCursor, data, numBytes );
 	_writeCursor += numBytes;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <size_t NumBytes>
-inline void buffer::write(const void* data) noexcept
+SBP_FORCE_INLINE void buffer::write( const void *data ) SBP_NOEXCEPT
 {
-	if constexpr (NumBytes == 1)
+	if constexpr ( NumBytes == 1 )
 	{
-		if (_writeCursor == _endCap)
-			reserve(capacity() * 2);
+		if ( _writeCursor == _endCap )
+			reserve( capacity() * 2 );
 
-		*_writeCursor++ = *reinterpret_cast<const uint8_t*>(data);
+		*_writeCursor++ = *reinterpret_cast<const uint8_t *>( data );
 	}
 	else
 	{
-		ensure_capacity(NumBytes);
-		memcpy(_writeCursor, data, NumBytes);
+		ensure_capacity( NumBytes );
+		memcpy( _writeCursor, data, NumBytes );
 		_writeCursor += NumBytes;
 	}
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
-inline void buffer::write(uint8_t header, T&& value) noexcept
+SBP_FORCE_INLINE void buffer::write( uint8_t header, T &&value ) SBP_NOEXCEPT
 {
-	ensure_capacity(1 + sizeof(T));
+	ensure_capacity( 1 + sizeof( T ) );
 	*_writeCursor++ = header;
-	memcpy(_writeCursor, &value, sizeof(T));
-	_writeCursor += sizeof(T);
+	memcpy( _writeCursor, &value, sizeof( T ) );
+	_writeCursor += sizeof( T );
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-inline void buffer::read(void* data, size_t numBytes) noexcept
+SBP_FORCE_INLINE void buffer::read( void *data, size_t numBytes ) SBP_NOEXCEPT
 {
-	if (_readCursor + numBytes <= _writeCursor)
-		memcpy(data, _readCursor, numBytes);
+	if ( _readCursor + numBytes <= _writeCursor )
+		memcpy( data, _readCursor, numBytes );
 
 	_readCursor += numBytes;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
-inline T buffer::read() noexcept
+SBP_FORCE_INLINE T buffer::read() SBP_NOEXCEPT
 {
-	if constexpr (sizeof(T) == 1)
-		return (_readCursor < _writeCursor) ? *reinterpret_cast<const T*>(_readCursor++) : T(0);
+	if constexpr ( sizeof( T ) == 1 )
+		return ( _readCursor < _writeCursor ) ? *reinterpret_cast<const T *>( _readCursor++ ) : T( 0 );
 
-	_readCursor += sizeof(T);
-	return (_readCursor <= _writeCursor) ? *reinterpret_cast<const T*>(_readCursor - sizeof(T)) : T(0);
+	_readCursor += sizeof( T );
+	return ( _readCursor <= _writeCursor ) ? *reinterpret_cast<const T *>( _readCursor - sizeof( T ) ) : T( 0 );
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename RT, typename T>
-inline error buffer::read(T& result) noexcept
+SBP_FORCE_INLINE error buffer::read( T &result ) SBP_NOEXCEPT
 {
-	if constexpr (sizeof(T) < sizeof(RT))
+	if constexpr ( sizeof( T ) < sizeof( RT ) )
 		return { error::corrupted_data };
 
-	if (_readCursor + sizeof(RT) > _writeCursor)
+	if ( _readCursor + sizeof( RT ) > _writeCursor )
 		return { error::unexpected_end };
 
-	result = static_cast<T>(*reinterpret_cast<const RT*>(_readCursor));
-	_readCursor += sizeof(RT);
+	result = static_cast<T>( *reinterpret_cast<const RT *>( _readCursor ) );
+	_readCursor += sizeof( RT );
 	return { error::none };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-inline const void* buffer::seek(size_t offset) noexcept
+SBP_FORCE_INLINE const void *buffer::seek( size_t offset ) SBP_NOEXCEPT
 {
-	const void* result = _readCursor;
+	const void *result = _readCursor;
 	_readCursor = _data + offset;
 	return result;
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-inline void buffer::ensure_capacity(size_t NumBytes) noexcept
+void buffer::ensure_capacity( size_t NumBytes ) SBP_NOEXCEPT
 {
-	if (_writeCursor + NumBytes > _endCap)
+	if ( _writeCursor + NumBytes > _endCap )
 	{
 		auto cap1 = size() + NumBytes;
-		auto cap2 = capacity() * 2;
+		auto cap2 = capacity() * 3 / 2;
 
-		reserve((cap1 > cap2) ? cap1 : cap2);
+		reserve( ( cap1 > cap2 ) ? cap1 : cap2 );
 	}
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-template <typename T, int8_t TypeID = 0>
-class ext final
-{
-public:
-	ext() noexcept = default;
-	ext(const T &value) noexcept: _value(value) { }
-
-	operator T* () const { return &_value; }
-	T* operator->() noexcept { return &_value; }
-
-private:
-	T _value;
-};
+} // namespace sbp
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-struct bin final
-{
-	const void* data;
-	size_t size;
-};
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-namespace detail {
+namespace sbp::detail {
 
 template <size_t>
 struct any { template <typename T> operator T() const; };
@@ -249,412 +248,415 @@ template <typename T, typename In, typename = void>
 struct has_n_members : std::false_type { };
 
 template <typename T, size_t... In>
-struct has_n_members<T, std::index_sequence<In...>, std::void_t<decltype(T{ any<In>()... })>> : std::true_type { };
+struct has_n_members < T, std::index_sequence<In...>, std::void_t < decltype( T { any<In>()... } ) >> :
+std::true_type { };
 
 template <typename T, typename In>
-struct has_n_members<T&, In> : has_n_members<T, In> { };
+struct has_n_members<T &, In> : has_n_members<T, In> { };
 
 template <typename T, typename In>
-struct has_n_members<T&&, In> : has_n_members<T, In> { };
+struct has_n_members < T &&, In > : has_n_members<T, In> { };
 
 template <typename T, size_t N>
 constexpr bool has_n_members_v = has_n_members<T, std::make_index_sequence<N>>::value;
 
-template <typename T>
-auto destructure(T& t) noexcept
-{
-#define _SBP_TIE(_Count, ...) \
-	if constexpr (has_n_members_v<T, _Count>) { \
-		auto &&[__VA_ARGS__] = std::forward<T>(t); \
-		return std::tie(__VA_ARGS__); } else
-
-	_SBP_TIE(16, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15)
-	_SBP_TIE(15, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14)
-	_SBP_TIE(14, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13)
-	_SBP_TIE(13, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12)
-	_SBP_TIE(12, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11)
-	_SBP_TIE(11, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10)
-	_SBP_TIE(10, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9)
-	_SBP_TIE( 9, m0, m1, m2, m3, m4, m5, m6, m7, m8)
-	_SBP_TIE( 8, m0, m1, m2, m3, m4, m5, m6, m7)
-	_SBP_TIE( 7, m0, m1, m2, m3, m4, m5, m6)
-	_SBP_TIE( 6, m0, m1, m2, m3, m4, m5)
-	_SBP_TIE( 5, m0, m1, m2, m3, m4)
-	_SBP_TIE( 4, m0, m1, m2, m3)
-	_SBP_TIE( 3, m0, m1, m2)
-	_SBP_TIE( 2, m0, m1)
-	_SBP_TIE( 1, m0)
-	{ return std::tuple(); }
-
-#undef _SBP_TIE
-}
-
 template <typename T> using nl = std::numeric_limits<T>;
 
 //---------------------------------------------------------------------------------------------------------------------
-void write_int(buffer& b, int64_t value) noexcept
+template <typename T>
+SBP_FORCE_INLINE void write_int( buffer &b, T value ) SBP_NOEXCEPT
 {
-	if (value >= 0 && value <= nl<int8_t>::max())
-		b.write(static_cast<int8_t>(value));
-	else if (value < 0 && value >= -32)
-		b.write(static_cast<int8_t>(value));
-	else if (value <= nl<int8_t>::max() && value >= nl<int8_t>::min())
-		b.write(0xd0u, int8_t(value));
-	else if (value <= nl<int16_t>::max() && value >= nl<int16_t>::min())
-		b.write(0xd1u, int16_t(value));
-	else if (value <= nl<int32_t>::max() && value >= nl<int32_t>::min())
-		b.write(0xd2u, int32_t(value));
+	if constexpr ( sizeof( T ) == 1 )
+	{
+		if ( value >= 0 && value <= 127 )
+			b.write( value );
+		else if ( value < 0 && value >= -32 )
+			b.write( value );
+		else
+			b.write( 0xd0u, value );
+	}
+	else if constexpr ( sizeof( T ) == 2 )
+	{
+		if ( value >= 0 && value <= 127 )
+			b.write( int8_t( value ) );
+		else if ( value < 0 && value >= -32 )
+			b.write( int8_t( value ) );
+		else if ( value <= 127 && value >= nl<int8_t>::min() )
+			b.write( 0xd0u, int8_t( value ) );
+		else
+			b.write( 0xd1u, value );
+	}
+	else if constexpr ( sizeof( T ) == 4 )
+	{
+		if ( value >= 0 && value <= 127 )
+			b.write( int8_t( value ) );
+		else if ( value < 0 && value >= -32 )
+			b.write( int8_t( value ) );
+		else if ( value <= 127 && value >= nl<int8_t>::min() )
+			b.write( 0xd0u, int8_t( value ) );
+		else if ( value <= nl<int16_t>::max() && value >= nl<int16_t>::min() )
+			b.write( 0xd1u, int16_t( value ) );
+		else
+			b.write( 0xd2u, value );
+	}
 	else
-		b.write(0xd3u, value);
+	{
+		if ( value >= 0 && value <= 127 )
+			b.write( int8_t( value ) );
+		else if ( value < 0 && value >= -32 )
+			b.write( int8_t( value ) );
+		else if ( value <= 127 && value >= nl<int8_t>::min() )
+			b.write( 0xd0u, int8_t( value ) );
+		else if ( value <= nl<int16_t>::max() && value >= nl<int16_t>::min() )
+			b.write( 0xd1u, int16_t( value ) );
+		else if ( value <= nl<int32_t>::max() && value >= nl<int32_t>::min() )
+			b.write( 0xd2u, int32_t( value ) );
+		else
+			b.write( 0xd3u, value );
+	}
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void write(buffer& b, int8_t  value) noexcept { write_int(b, value); }
-void write(buffer& b, int16_t value) noexcept { write_int(b, value); }
-void write(buffer& b, int32_t value) noexcept { write_int(b, value); }
-void write(buffer& b, int64_t value) noexcept { write_int(b, value); }
-
-//---------------------------------------------------------------------------------------------------------------------
-void write_uint(buffer& b, uint64_t value) noexcept
-{
-	if (value <= nl<int8_t>::max())
-		b.write(static_cast<uint8_t>(value));
-	else if (value <= nl<uint8_t>::max())
-		b.write(0xccu, uint8_t(value));
-	else if (value <= nl<uint16_t>::max())
-		b.write(0xcdu, uint16_t(value));
-	else if (value <= nl<uint32_t>::max())
-		b.write(0xceu, uint32_t(value));
-	else
-		b.write(0xcfu, value);
-}
-
-//---------------------------------------------------------------------------------------------------------------------
-void write(buffer& b, uint8_t  value) noexcept { write_uint(b, value); }
-void write(buffer& b, uint16_t value) noexcept { write_uint(b, value); }
-void write(buffer& b, uint32_t value) noexcept { write_uint(b, value); }
-void write(buffer& b, uint64_t value) noexcept { write_uint(b, value); }
-
-//---------------------------------------------------------------------------------------------------------------------
-void write_str(buffer& b, const char* value, size_t length) noexcept
-{
-	if (length <= 31)
-		b.write(uint8_t(uint8_t(0b10100000u) | static_cast<uint8_t>(length)));
-	else if (length <= nl<uint8_t>::max())
-		b.write(0xd9u, uint8_t(length));
-	else if (length <= nl<uint16_t>::max())
-		b.write(0xdau, uint16_t(length));
-	else
-		b.write(0xdbu, uint32_t(length));
-
-	b.write(value, length);
-}
-
-//---------------------------------------------------------------------------------------------------------------------
-void write(buffer& b, const std::string& value) noexcept { write_str(b, value.c_str(), value.length()); }
-void write(buffer& b, const char* value) noexcept { write_str(b, value, value ? (strlen(value) + 1) : 0); }
-
-//---------------------------------------------------------------------------------------------------------------------
-void write(buffer& b, float value) noexcept { b.write(0xca, value); }
-void write(buffer& b, double value) noexcept { b.write(0xcb, value); }
-
-//---------------------------------------------------------------------------------------------------------------------
-void write(buffer& b, bool value) noexcept { b.write(value ? uint8_t(0xc3u) : uint8_t(0xc2u)); }
+SBP_FORCE_INLINE void write( buffer &b, int8_t  value ) SBP_NOEXCEPT { write_int( b, value ); }
+SBP_FORCE_INLINE void write( buffer &b, int16_t value ) SBP_NOEXCEPT { write_int( b, value ); }
+SBP_FORCE_INLINE void write( buffer &b, int32_t value ) SBP_NOEXCEPT { write_int( b, value ); }
+SBP_FORCE_INLINE void write( buffer &b, int64_t value ) SBP_NOEXCEPT { write_int( b, value ); }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
-void write_array(buffer& b, const T* values, size_t numValues) noexcept
+SBP_FORCE_INLINE void write_uint( buffer &b, T value ) SBP_NOEXCEPT
 {
-	if (numValues <= 15)
-		b.write(uint8_t(uint8_t(0b10010000u) | static_cast<uint8_t>(numValues)));
-	else if (numValues <= nl<uint16_t>::max())
-		b.write(0xdcu, uint16_t(numValues));
+	if constexpr ( sizeof( T ) == 1 )
+	{
+		if ( value <= 127 )
+			b.write( value );
+		else
+			b.write( 0xccu, value );
+	}
+	else if constexpr ( sizeof( T ) == 2 )
+	{
+		if ( value <= 127 )
+			b.write( uint8_t( value ) );
+		else if ( value <= nl<uint8_t>::max() )
+			b.write( 0xccu, uint8_t( value ) );
+		else
+			b.write( 0xcdu, value );
+	}
+	else if constexpr ( sizeof( T ) == 4 )
+	{
+		if ( value <= 127 )
+			b.write( uint8_t( value ) );
+		else if ( value <= nl<uint8_t>::max() )
+			b.write( 0xccu, uint8_t( value ) );
+		else if ( value <= nl<uint16_t>::max() )
+			b.write( 0xcdu, uint16_t( value ) );
+		else
+			b.write( 0xceu, value );
+	}
 	else
-		b.write(0xddu, uint32_t(numValues));
+	{
+		if ( value <= 127 )
+			b.write( uint8_t( value ) );
+		else if ( value <= nl<uint8_t>::max() )
+			b.write( 0xccu, uint8_t( value ) );
+		else if ( value <= nl<uint16_t>::max() )
+			b.write( 0xcdu, uint16_t( value ) );
+		else if ( value <= nl<uint32_t>::max() )
+			b.write( 0xceu, uint32_t( value ) );
+		else
+			b.write( 0xcfu, value );
+	}
+}
 
-	for (size_t i = 0; i < numValues; ++i)
-		write(b, values[i]);
+//---------------------------------------------------------------------------------------------------------------------
+SBP_FORCE_INLINE void write( buffer &b, uint8_t  value ) SBP_NOEXCEPT { write_uint( b, value ); }
+SBP_FORCE_INLINE void write( buffer &b, uint16_t value ) SBP_NOEXCEPT { write_uint( b, value ); }
+SBP_FORCE_INLINE void write( buffer &b, uint32_t value ) SBP_NOEXCEPT { write_uint( b, value ); }
+SBP_FORCE_INLINE void write( buffer &b, uint64_t value ) SBP_NOEXCEPT { write_uint( b, value ); }
+
+//---------------------------------------------------------------------------------------------------------------------
+SBP_FORCE_INLINE void write_str( buffer &b, const char *value, size_t length ) SBP_NOEXCEPT
+{
+	if ( length <= 31 )
+		b.write( uint8_t( uint8_t( 0b10100000u ) | static_cast<uint8_t>( length ) ) );
+	else if ( length <= nl<uint8_t>::max() )
+		b.write( 0xd9u, uint8_t( length ) );
+	else if ( length <= nl<uint16_t>::max() )
+		b.write( 0xdau, uint16_t( length ) );
+	else
+		b.write( 0xdbu, uint32_t( length ) );
+
+	b.write( value, length );
+}
+
+SBP_FORCE_INLINE void write( buffer &b, const char *value ) SBP_NOEXCEPT { write_str( b, value, value ? ( strlen( value ) + 1 ) : 0 ); }
+
+//---------------------------------------------------------------------------------------------------------------------
+SBP_FORCE_INLINE void write( buffer &b, float value ) SBP_NOEXCEPT { b.write( 0xca, value ); }
+SBP_FORCE_INLINE void write( buffer &b, double value ) SBP_NOEXCEPT { b.write( 0xcb, value ); }
+
+//---------------------------------------------------------------------------------------------------------------------
+SBP_FORCE_INLINE void write( buffer &b, bool value ) SBP_NOEXCEPT { b.write( value ? uint8_t( 0xc3u ) : uint8_t( 0xc2u ) ); }
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename T>
+SBP_FORCE_INLINE void write_array( buffer &b, const T *values, size_t numValues ) SBP_NOEXCEPT
+{
+	if ( numValues <= 15 )
+		b.write( uint8_t( uint8_t( 0b10010000u ) | static_cast<uint8_t>( numValues ) ) );
+	else if ( numValues <= nl<uint16_t>::max() )
+		b.write( 0xdcu, uint16_t( numValues ) );
+	else
+		b.write( 0xddu, uint32_t( numValues ) );
+
+	for ( size_t i = 0; i < numValues; ++i )
+		write( b, values[i] );
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <size_t NumValues, typename T>
-void write_array_fixed(buffer& b, const T* values) noexcept
+SBP_FORCE_INLINE void write_array_fixed( buffer &b, const T *values ) SBP_NOEXCEPT
 {
-	if constexpr (NumValues <= 15)
-		b.write(uint8_t(uint8_t(0b10010000u) | static_cast<uint8_t>(NumValues)));
-	else if constexpr (NumValues <= nl<uint16_t>::max())
-		b.write(0xdcu, uint16_t(NumValues));
+	if constexpr ( NumValues <= 15 )
+		b.write( uint8_t( uint8_t( 0b10010000u ) | static_cast<uint8_t>( NumValues ) ) );
+	else if constexpr ( NumValues <= nl<uint16_t>::max() )
+		b.write( 0xdcu, uint16_t( NumValues ) );
 	else
-		b.write(0xddu, uint32_t(NumValues));
+		b.write( 0xddu, uint32_t( NumValues ) );
 
-	for (size_t i = 0; i < NumValues; ++i)
-		write(b, values[i]);
+	for ( size_t i = 0; i < NumValues; ++i )
+		write( b, values[i] );
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-template <typename T, typename A>
-void write(buffer& b, const std::vector<T, A>& value) noexcept { write_array(b, value.data(), value.size()); }
-
 template <typename T, size_t NumValues>
-void write(buffer& b, const T (&value)[NumValues]) noexcept { write_array(b, value, NumValues); }
-
-template <typename T, size_t NumValues>
-void write(buffer& b, const std::array<T, NumValues>& value) noexcept { write_array(b, value.data(), NumValues); }
+SBP_FORCE_INLINE void write( buffer &b, const T( &value )[NumValues] ) SBP_NOEXCEPT { write_array( b, value, NumValues ); }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
-void write_map(buffer& b, const T& value) noexcept
+SBP_FORCE_INLINE void write_map( buffer &b, const T &value ) SBP_NOEXCEPT
 {
 	auto numValues = value.size();
 
-	if (numValues <= 15)
-		b.write(uint8_t(uint8_t(0b10000000u) | static_cast<uint8_t>(numValues)));
-	else if (numValues <= nl<uint16_t>::max())
-		b.write(0xdeu, uint16_t(numValues));
+	if ( numValues <= 15 )
+		b.write( uint8_t( uint8_t( 0b10000000u ) | static_cast<uint8_t>( numValues ) ) );
+	else if ( numValues <= nl<uint16_t>::max() )
+		b.write( 0xdeu, uint16_t( numValues ) );
 	else
-		b.write(0xdfu, uint32_t(numValues));
+		b.write( 0xdfu, uint32_t( numValues ) );
 
-	for (const auto& kvp : value)
+	for ( const auto & [k, v] : value )
 	{
-		write(b, kvp.first);
-		write(b, kvp.second);
+		write( b, k );
+		write( b, v );
 	}
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-template <typename K, typename T, typename P, typename A>
-void write(buffer& b, const std::map<K, T, P, A>& value) noexcept { write_map(b, value); }
-
-template <typename K, typename T, typename H, typename EQ, typename A>
-void write(buffer& b, const std::unordered_map<K, T, H, EQ, A>& value) noexcept { write_map(b, value); }
-
-//---------------------------------------------------------------------------------------------------------------------
-void write_bin(buffer& b, const void* data, size_t numBytes) noexcept
+SBP_FORCE_INLINE void write_bin( buffer &b, const void *data, size_t numBytes ) SBP_NOEXCEPT
 {
-	if (numBytes <= nl<uint8_t>::max())
-		b.write(0xc4u, uint8_t(numBytes));
-	else if (numBytes <= nl<uint16_t>::max())
-		b.write(0xc5u, uint16_t(numBytes));
+	if ( numBytes <= nl<uint8_t>::max() )
+		b.write( 0xc4u, uint8_t( numBytes ) );
+	else if ( numBytes <= nl<uint16_t>::max() )
+		b.write( 0xc5u, uint16_t( numBytes ) );
 	else
-		b.write(0xc6u, uint32_t(numBytes));
+		b.write( 0xc6u, uint32_t( numBytes ) );
 
-	b.write(data, numBytes);
+	b.write( data, numBytes );
 }
-
-//---------------------------------------------------------------------------------------------------------------------
-void write(buffer& b, const bin& value) noexcept { write_bin(b, value.data, value.size); }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <size_t NumBytes>
-void write_ext(buffer& b, int8_t type, const void* data) noexcept
+SBP_FORCE_INLINE void write_ext( buffer &b, int8_t type, const void *data ) SBP_NOEXCEPT
 {
-	if constexpr (NumBytes == 1)
-		b.write(0xd4u, type);
-	else if constexpr (NumBytes == 2)
-		b.write(0xd5u, type);
-	else if constexpr (NumBytes == 4)
-		b.write(0xd6u, type);
-	else if constexpr (NumBytes == 8)
-		b.write(0xd7u, type);
-	else if constexpr (NumBytes == 16)
-		b.write(0xd8u, type);
-	else if constexpr (NumBytes <= nl<uint8_t>::max())
+	if constexpr ( NumBytes == 1 )
+		b.write( 0xd4u, type );
+	else if constexpr ( NumBytes == 2 )
+		b.write( 0xd5u, type );
+	else if constexpr ( NumBytes == 4 )
+		b.write( 0xd6u, type );
+	else if constexpr ( NumBytes == 8 )
+		b.write( 0xd7u, type );
+	else if constexpr ( NumBytes == 16 )
+		b.write( 0xd8u, type );
+	else if constexpr ( NumBytes <= nl<uint8_t>::max() )
 	{
-		b.write(0xc7u, uint8_t(NumBytes));
-		b.write(type);
+		b.write( 0xc7u, uint8_t( NumBytes ) );
+		b.write( type );
 	}
-	else if constexpr (NumBytes <= nl<uint16_t>::max())
+	else if constexpr ( NumBytes <= nl<uint16_t>::max() )
 	{
-		b.write(0xc8u, uint16_t(NumBytes));
-		b.write(type);
+		b.write( 0xc8u, uint16_t( NumBytes ) );
+		b.write( type );
 	}
 	else
 	{
-		b.write(0xc9u, uint32_t(NumBytes));
-		b.write(type);
+		b.write( 0xc9u, uint32_t( NumBytes ) );
+		b.write( type );
 	}
 
-	b.write(data, NumBytes);
+	b.write( data, NumBytes );
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-void write_ext(buffer& b, int8_t type, const void* data, size_t numBytes) noexcept
+SBP_FORCE_INLINE void write_ext( buffer &b, int8_t type, const void *data, size_t numBytes ) SBP_NOEXCEPT
 {
-	if (numBytes == 1)
-		b.write(0xd4u, type);
-	else if (numBytes == 2)
-		b.write(0xd5u, type);
-	else if (numBytes == 4)
-		b.write(0xd6u, type);
-	else if (numBytes == 8)
-		b.write(0xd7u, type);
-	else if (numBytes == 16)
-		b.write(0xd8u, type);
-	else if (numBytes <= nl<uint8_t>::max())
+	if ( numBytes == 1 )
+		b.write( 0xd4u, type );
+	else if ( numBytes == 2 )
+		b.write( 0xd5u, type );
+	else if ( numBytes == 4 )
+		b.write( 0xd6u, type );
+	else if ( numBytes == 8 )
+		b.write( 0xd7u, type );
+	else if ( numBytes == 16 )
+		b.write( 0xd8u, type );
+	else if ( numBytes <= nl<uint8_t>::max() )
 	{
-		b.write(0xc7u, uint8_t(numBytes));
-		b.write(type);
+		b.write( 0xc7u, uint8_t( numBytes ) );
+		b.write( type );
 	}
-	else if (numBytes <= nl<uint16_t>::max())
+	else if ( numBytes <= nl<uint16_t>::max() )
 	{
-		b.write(0xc8u, uint16_t(numBytes));
-		b.write(type);
+		b.write( 0xc8u, uint16_t( numBytes ) );
+		b.write( type );
 	}
 	else
 	{
-		b.write(0xc9u, uint32_t(numBytes));
-		b.write(type);
+		b.write( 0xc9u, uint32_t( numBytes ) );
+		b.write( type );
 	}
 
-	b.write(data, numBytes);
+	b.write( data, numBytes );
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-template <typename T, int8_t TypeID>
-void write(buffer& b, const ext<T, TypeID>& value) noexcept { write_ext<sizeof(T)>(b, TypeID, &value); }
-
-//---------------------------------------------------------------------------------------------------------------------
-template <size_t I = 0, typename... Types>
-void write(buffer& b, const std::tuple<Types...>& t) noexcept
+template <typename T, typename... Tail>
+void write_multiple( buffer &b, const T &value, const Tail &... tail ) SBP_NOEXCEPT
 {
-	const auto& value = std::get<I>(t);
-	using Type = std::remove_reference_t<decltype(value)>;
-
-	if constexpr (std::is_enum_v<Type>)
-		write(b, std::underlying_type_t<Type>(value));
+	if constexpr ( std::is_enum_v<T> )
+		write( b, std::underlying_type_t<T>( value ) );
 	else
-		write(b, value);
+		write( b, value );
 
-	if constexpr (I + 1 != sizeof...(Types))
-		write<I + 1>(b, t);
+	if constexpr ( sizeof...( Tail ) > 0 )
+		write_multiple( b, tail... );
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
-error read_int(buffer& b, T& value) noexcept
+SBP_FORCE_INLINE error read_int( buffer &b, T &value ) SBP_NOEXCEPT
 {
-	if (auto header = b.read<uint8_t>(); (header & 0b10000000u) == 0)
+	if ( auto header = b.read<uint8_t>(); ( header & 0b10000000u ) == 0 )
 	{
-		value = static_cast<T>(header);
+		value = static_cast<T>( header );
 		return b.valid();
 	}
-	else if ((header & 0b11100000u) == 0b11100000u)
+	else if ( ( header & 0b11100000u ) == 0b11100000u )
 	{
-		value = static_cast<T>(static_cast<int8_t>(header));
+		value = static_cast<T>( static_cast<int8_t>( header ) );
 		return b.valid();
 	}
-	else if (header == 0xd0u)
-		return b.read<int8_t>(value);
-	else if (header == 0xd1u)
-		return b.read<int16_t>(value);
-	else if (header == 0xd2u)
-		return b.read<int32_t>(value);
-	else if (header == 0xd3u)
-		return b.read<int64_t>(value);
+	else if ( header == 0xd0u )
+		return b.read<int8_t>( value );
+	else if ( header == 0xd1u )
+		return b.read<int16_t>( value );
+	else if ( header == 0xd2u )
+		return b.read<int32_t>( value );
+	else if ( header == 0xd3u )
+		return b.read<int64_t>( value );
 
 	return { error::corrupted_data };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-error read(buffer& b, int8_t&  value) noexcept { return read_int(b, value); }
-error read(buffer& b, int16_t& value) noexcept { return read_int(b, value); }
-error read(buffer& b, int32_t& value) noexcept { return read_int(b, value); }
-error read(buffer& b, int64_t& value) noexcept { return read_int(b, value); }
+SBP_FORCE_INLINE error read( buffer &b, int8_t  &value ) SBP_NOEXCEPT { return read_int( b, value ); }
+SBP_FORCE_INLINE error read( buffer &b, int16_t &value ) SBP_NOEXCEPT { return read_int( b, value ); }
+SBP_FORCE_INLINE error read( buffer &b, int32_t &value ) SBP_NOEXCEPT { return read_int( b, value ); }
+SBP_FORCE_INLINE error read( buffer &b, int64_t &value ) SBP_NOEXCEPT { return read_int( b, value ); }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
-error read_uint(buffer& b, T& value) noexcept
+SBP_FORCE_INLINE error read_uint( buffer &b, T &value ) SBP_NOEXCEPT
 {
-	if (auto header = b.read<uint8_t>(); (header & 0b10000000u) == 0)
+	if ( auto header = b.read<uint8_t>(); ( header & 0b10000000u ) == 0 )
 	{
 		value = header;
 		return b.valid();
 	}
-	else if (header == 0xccu)
-		return b.read<uint8_t>(value);
-	else if (header == 0xcdu)
-		return b.read<uint16_t>(value);
-	else if (header == 0xceu)
-		return b.read<uint32_t>(value);
-	else if (header == 0xcfu)
-		return b.read<uint64_t>(value);
+	else if ( header == 0xccu )
+		return b.read<uint8_t>( value );
+	else if ( header == 0xcdu )
+		return b.read<uint16_t>( value );
+	else if ( header == 0xceu )
+		return b.read<uint32_t>( value );
+	else if ( header == 0xcfu )
+		return b.read<uint64_t>( value );
 
 	return { error::corrupted_data };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-error read(buffer& b, uint8_t&  value) noexcept { return read_uint(b, value); }
-error read(buffer& b, uint16_t& value) noexcept { return read_uint(b, value); }
-error read(buffer& b, uint32_t& value) noexcept { return read_uint(b, value); }
-error read(buffer& b, uint64_t& value) noexcept { return read_uint(b, value); }
+SBP_FORCE_INLINE error read( buffer &b, uint8_t  &value ) SBP_NOEXCEPT { return read_uint( b, value ); }
+SBP_FORCE_INLINE error read( buffer &b, uint16_t &value ) SBP_NOEXCEPT { return read_uint( b, value ); }
+SBP_FORCE_INLINE error read( buffer &b, uint32_t &value ) SBP_NOEXCEPT { return read_uint( b, value ); }
+SBP_FORCE_INLINE error read( buffer &b, uint64_t &value ) SBP_NOEXCEPT { return read_uint( b, value ); }
 
 //---------------------------------------------------------------------------------------------------------------------
-error read_string_length(buffer& b, size_t& value) noexcept
+SBP_FORCE_INLINE error read_string_length( buffer &b, size_t &value ) SBP_NOEXCEPT
 {
-	if (auto header = b.read<uint8_t>(); (header & 0b11100000u) == 0b10100000u)
+	if ( auto header = b.read<uint8_t>(); ( header & 0b11100000u ) == 0b10100000u )
 	{
 		value = header & 0b00011111u;
 		return b.valid();
 	}
-	else if (header == 0xd9u)
-		return b.read<uint8_t>(value);
-	else if (header == 0xdau)
-		return b.read<uint16_t>(value);
-	else if (header == 0xdbu)
-		return b.read<uint32_t>(value);
+	else if ( header == 0xd9u )
+		return b.read<uint8_t>( value );
+	else if ( header == 0xdau )
+		return b.read<uint16_t>( value );
+	else if ( header == 0xdbu )
+		return b.read<uint32_t>( value );
 
 	return { error::corrupted_data };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-error read(buffer& b, std::string& value) noexcept
+SBP_FORCE_INLINE error read( buffer &b, const char *&value ) SBP_NOEXCEPT
 {
 	size_t length = 0;
-	if (auto err = read_string_length(b, length))
+	if ( auto err = read_string_length( b, length ) )
 		return err;
 
-	value.resize(length);
-	b.read(value.data(), length);
+	value = reinterpret_cast<const char *>( b.seek( b.tell() + length ) );
 	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-error read(buffer& b, const char*& value) noexcept
+SBP_FORCE_INLINE error read( buffer &b, float &value ) SBP_NOEXCEPT
 {
-	size_t length = 0;
-	if (auto err = read_string_length(b, length))
-		return err;
-
-	value = reinterpret_cast<const char *>(b.seek(b.tell() + length));
-	return b.valid();
-}
-
-//---------------------------------------------------------------------------------------------------------------------
-error read(buffer& b, float& value) noexcept
-{
-	if (b.read<uint8_t>() != 0xcau)
+	if ( b.read<uint8_t>() != 0xcau )
 		return { error::corrupted_data };
 
-	return b.read<float>(value);
+	return b.read<float>( value );
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-error read(buffer& b, double& value) noexcept
+SBP_FORCE_INLINE error read( buffer &b, double &value ) SBP_NOEXCEPT
 {
-	if (b.read<uint8_t>() != 0xcbu)
+	if ( b.read<uint8_t>() != 0xcbu )
 		return { error::corrupted_data };
 
-	return b.read<double>(value);
+	return b.read<double>( value );
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-error read(buffer& b, bool& value) noexcept
+SBP_FORCE_INLINE error read( buffer &b, bool &value ) SBP_NOEXCEPT
 {
-	if (auto header = b.read<uint8_t>(); header == 0xc2u || header == 0xc3u)
+	if ( auto header = b.read<uint8_t>(); header == 0xc2u || header == 0xc3u )
 	{
-		value = (header == 0xc3u);
+		value = ( header == 0xc3u );
 		return { error::none };
 	}
 
@@ -662,229 +664,403 @@ error read(buffer& b, bool& value) noexcept
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-error read_array_length(buffer& b, size_t& value) noexcept
+SBP_FORCE_INLINE error read_array_length( buffer &b, size_t &value ) SBP_NOEXCEPT
 {
-	if (auto header = b.read<uint8_t>(); (header & 0b11110000u) == 0b10010000u)
+	if ( auto header = b.read<uint8_t>(); ( header & 0b11110000u ) == 0b10010000u )
 	{
 		value = header & 0b00001111u;
 		return { error::none };
 	}
-	else if (header == 0xdcu)
-		return b.read<uint16_t>(value);
-	else if (header == 0xddu)
-		return b.read<uint32_t>(value);
+	else if ( header == 0xdcu )
+		return b.read<uint16_t>( value );
+	else if ( header == 0xddu )
+		return b.read<uint32_t>( value );
 
 	return { error::corrupted_data };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-template <typename T, typename A>
-error read(buffer& b, std::vector<T, A>& value) noexcept
+SBP_FORCE_INLINE error read_map_length( buffer &b, size_t &value ) SBP_NOEXCEPT
 {
-	size_t numValues = 0;
-	if (auto err = read_array_length(b, numValues))
-		return err;
-
-	value.clear();
-	value.reserve(value.size() + numValues);
-	for (size_t i = 0; i < numValues; ++i)
-	{
-		if (auto err = read(b, value.emplace_back()))
-			return err;
-	}
-
-	return b.valid();
-}
-
-//---------------------------------------------------------------------------------------------------------------------
-template <typename T, size_t NumValues>
-error read(buffer& b, std::array<T, NumValues>& value) noexcept
-{
-	size_t numValues = 0;
-	if (auto err = read_array_length(b, numValues))
-		return err;
-
-	if (numValues != NumValues)
-		return { error::corrupted_data };
-
-	for (size_t i = 0; i < NumValues; ++i)
-	{
-		if (auto err = read(b, value[i]))
-			return err;
-	}
-
-	return b.valid();
-}
-
-//---------------------------------------------------------------------------------------------------------------------
-error read_map_length(buffer& b, size_t& value) noexcept
-{
-	if (auto header = b.read<uint8_t>(); (header & 0b11110000u) == 0b10000000u)
+	if ( auto header = b.read<uint8_t>(); ( header & 0b11110000u ) == 0b10000000u )
 	{
 		value = header & 0b00001111u;
 		return { error::none };
 	}
-	else if (header == 0xdeu)
-		return b.read<uint16_t>(value);
-	else if (header == 0xdfu)
-		return b.read<uint32_t>(value);
+	else if ( header == 0xdeu )
+		return b.read<uint16_t>( value );
+	else if ( header == 0xdfu )
+		return b.read<uint32_t>( value );
 
 	return { error::corrupted_data };
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-template <typename T>
-error read_map(buffer& b, T& value) noexcept
+template <typename T, typename KeyType, typename ValueType>
+SBP_FORCE_INLINE error read_map( buffer &b, T &value ) SBP_NOEXCEPT
 {
 	size_t numValues = 0;
-	if (auto err = read_map_length(b, numValues))
+	if ( auto err = read_map_length( b, numValues ) )
 		return err;
 
-	std::pair<typename T::key_type, typename T::mapped_type> kvp;
-
 	value.clear();
-	for (size_t i = 0; i < numValues; ++i)
+	for ( size_t i = 0; i < numValues; ++i )
 	{
-		if (auto err = read(b, kvp.first))
+		KeyType k;
+		if ( auto err = read( b, k ) )
 			return err;
 
-		if (auto err = read(b, kvp.second))
+		ValueType v;
+		if ( auto err = read( b, v ) )
 			return err;
 
-		value.emplace(std::move(kvp));
+		value[std::move( k )] = std::move( v );
 	}
 
 	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-template <typename K, typename T, typename P, typename A>
-error read(buffer& b, std::map<K, T, P, A>& value) noexcept { return read_map(b, value); }
-
-template <typename K, typename T, typename H, typename EQ, typename A>
-error read(buffer& b, std::unordered_map<K, T, H, EQ, A>& value) noexcept { return read_map(b, value); }
-
-//---------------------------------------------------------------------------------------------------------------------
-error read(buffer& b, bin& value) noexcept
-{
-	// TODO
-	return b.valid();
-}
-//---------------------------------------------------------------------------------------------------------------------
-template <size_t NumBytes>
-error read_ext(buffer& b, int8_t& type, const void*& value) noexcept
+template <size_t NumBytes, int8_t TypeID = 0>
+SBP_FORCE_INLINE error read_ext( buffer &b, const void *&value ) SBP_NOEXCEPT
 {
 	auto header = b.read<uint8_t>();
-	if constexpr (NumBytes == 1)
+	if constexpr ( NumBytes == 1 )
 	{
-		if (header != 0xd4u)
+		if ( header != 0xd4u )
 			return { error::corrupted_data };
 	}
-	else if constexpr (NumBytes == 2)
+	else if constexpr ( NumBytes == 2 )
 	{
-		if (header != 0xd5u)
+		if ( header != 0xd5u )
 			return { error::corrupted_data };
 	}
-	else if constexpr (NumBytes == 4)
+	else if constexpr ( NumBytes == 4 )
 	{
-		if (header != 0xd6u)
+		if ( header != 0xd6u )
 			return { error::corrupted_data };
 	}
-	else if constexpr (NumBytes == 8)
+	else if constexpr ( NumBytes == 8 )
 	{
-		if (header != 0xd7u)
+		if ( header != 0xd7u )
 			return { error::corrupted_data };
 	}
-	else if constexpr (NumBytes == 16)
+	else if constexpr ( NumBytes == 16 )
 	{
-		if (header != 0xd8u)
+		if ( header != 0xd8u )
 			return { error::corrupted_data };
 	}
-	else if constexpr (NumBytes <= nl<uint8_t>::max())
+	else if constexpr ( NumBytes <= nl<uint8_t>::max() )
 	{
-		if (header != 0xc7u || b.read<uint8_t>() != NumBytes)
+		if ( header != 0xc7u || b.read<uint8_t>() != NumBytes )
 			return { error::corrupted_data };
 	}
-	else if constexpr (NumBytes <= nl<uint16_t>::max())
+	else if constexpr ( NumBytes <= nl<uint16_t>::max() )
 	{
-		if (header != 0xc8u || b.read<uint16_t>() != NumBytes)
+		if ( header != 0xc8u || b.read<uint16_t>() != NumBytes )
 			return { error::corrupted_data };
 	}
 	else
 	{
-		if (header != 0xc9u || b.read<uint32_t>() != NumBytes)
+		if ( header != 0xc9u || b.read<uint32_t>() != NumBytes )
 			return { error::corrupted_data };
 	}
 
-	if (auto err = b.read<int8_t>(type))
-		return err;
-
-	value = b.seek(b.tell() + NumBytes);
-	return b.valid();
-}
-
-//---------------------------------------------------------------------------------------------------------------------
-template <typename T, int8_t TypeID>
-error read(buffer& b, ext<T, TypeID>& value) noexcept
-{
-	int8_t type = 0;
-	const void* data = nullptr;
-	if (auto err = read_ext<sizeof(T)>(b, type, data))
-		return err;
-
-	if (type != TypeID)
+	if ( b.read<int8_t>() != TypeID )
 		return { error::corrupted_data };
 
-	memcpy(&value, data, sizeof(T));
+	value = b.seek( b.tell() + NumBytes );
 	return b.valid();
 }
 
 //---------------------------------------------------------------------------------------------------------------------
-template <size_t I = 0, typename... Types>
-error read(buffer& b, std::tuple<Types...>& t) noexcept
+template <typename T, typename... Tail>
+error read_multiple( buffer &b, T &value, Tail &... tail ) SBP_NOEXCEPT
 {
-	auto& value = std::get<I>(t);
-	using Type = std::remove_reference_t<decltype(value)>;
+	error err;
 
-	if constexpr (std::is_enum_v<Type>)
-	{
-		auto underlyingValue = std::underlying_type_t<Type>(0);
-		if (auto err = read(b, underlyingValue))
-			return err;
-
-		value = static_cast<Type>(underlyingValue);
-	}
+	if constexpr ( std::is_enum_v<T> )
+		err = read( b, std::underlying_type_t<T>( value ) );
 	else
+		err = read( b, value );
+
+	if constexpr ( sizeof...( Tail ) > 0 )
 	{
-		if (auto err = read(b, value))
+		if ( auto err = read_multiple( b, tail... ) )
 			return err;
 	}
 
-	if constexpr (I + 1 != sizeof...(Types))
-	{
-		if (auto err = read<I + 1>(b, t))
-			return err;
-	}
-
-	return b.valid();
+	return err;
 }
 
-} // namespace detail
+} // namespace sbp::detail
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#if defined(SBP_MSVC)
+	#if defined(_ARRAY_)
+		#define SBP_STL_ARRAY
+	#endif
+
+	#if defined(_MAP_)
+		#define SBP_STL_MAP
+	#endif
+
+	#if defined(_STRING_)
+		#define SBP_STL_STRING
+	#endif
+
+	#if defined(_STRING_VIEW_)
+		#define SBP_STL_STRING_VIEW
+	#endif
+
+	#if defined(_UNORDERED_MAP_)
+		#define SBP_STL_UNORDERED_MAP
+	#endif
+
+	#if defined(_VECTOR_)
+		#define SBP_STL_VECTOR
+	#endif
+#endif
+
+namespace sbp::detail {
+
+#if defined(SBP_STL_ARRAY)
+//---------------------------------------------------------------------------------------------------------------------
+template <typename T, size_t NumValues>
+SBP_FORCE_INLINE void write( buffer &b, const std::array<T, NumValues> &value ) SBP_NOEXCEPT { write_array( b, value.data(), NumValues ); }
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename T, size_t NumValues>
+SBP_FORCE_INLINE error read( buffer &b, std::array<T, NumValues> &value ) SBP_NOEXCEPT
+{
+	size_t numValues = 0;
+	if ( auto err = read_array_length( b, numValues ) )
+		return err;
+
+	if ( numValues != NumValues )
+		return { error::corrupted_data };
+
+	for ( size_t i = 0; i < NumValues; ++i )
+	{
+		if ( auto err = read( b, value[i] ) )
+			return err;
+	}
+
+	return b.valid();
+}
+#endif
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#if defined(SBP_STL_MAP)
+//---------------------------------------------------------------------------------------------------------------------
+template <typename K, typename T, typename P, typename A>
+SBP_FORCE_INLINE void write( buffer &b, const std::map<K, T, P, A> &value ) SBP_NOEXCEPT { write_map( b, value ); }
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename K, typename T, typename P, typename A>
+SBP_FORCE_INLINE error read( buffer &b, std::map<K, T, P, A> &value ) SBP_NOEXCEPT
+{
+	using Type = std::remove_reference_t<decltype( value )>;
+	return read_map<Type, typename Type::key_type, typename Type::mapped_type>( b, value );
+}
+#endif
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#if defined(SBP_STL_UNORDERED_MAP)
+//---------------------------------------------------------------------------------------------------------------------
+template <typename K, typename T, typename H, typename EQ, typename A>
+SBP_FORCE_INLINE void write( buffer &b, const std::unordered_map<K, T, H, EQ, A> &value ) SBP_NOEXCEPT { write_map( b, value ); }
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename K, typename T, typename H, typename EQ, typename A>
+SBP_FORCE_INLINE error read( buffer &b, std::unordered_map<K, T, H, EQ, A> &value ) SBP_NOEXCEPT { return read_map( b, value ); }
+#endif
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#if defined(SBP_STL_STRING)
+//---------------------------------------------------------------------------------------------------------------------
+SBP_FORCE_INLINE void write( buffer &b, const std::string &value ) SBP_NOEXCEPT { write_str( b, value.c_str(), value.length() ); }
+
+//---------------------------------------------------------------------------------------------------------------------
+SBP_FORCE_INLINE error read( buffer &b, std::string &value ) SBP_NOEXCEPT
+{
+	size_t length = 0;
+	if ( auto err = read_string_length( b, length ) )
+		return err;
+
+	value.resize( length );
+	b.read( value.data(), length );
+	return b.valid();
+}
+#endif
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#if defined(SBP_STL_STRING_VIEW)
+//---------------------------------------------------------------------------------------------------------------------
+SBP_FORCE_INLINE void write( buffer &b, std::string_view value ) SBP_NOEXCEPT { write_str( b, value.data(), value.length() ); }
+
+//---------------------------------------------------------------------------------------------------------------------
+SBP_FORCE_INLINE error read( buffer &b, std::string_view &value ) SBP_NOEXCEPT
+{
+	size_t length = 0;
+	if ( auto err = read_string_length( b, length ) )
+		return err;
+
+	value = std::string_view( reinterpret_cast<const char *>( b.seek( b.tell() + length ) ), length );
+	return b.valid();
+}
+#endif
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#if defined(SBP_STL_VECTOR)
+//---------------------------------------------------------------------------------------------------------------------
+template <typename T, typename A>
+SBP_FORCE_INLINE void write( buffer &b, const std::vector<T, A> &value ) SBP_NOEXCEPT { write_array( b, value.data(), value.size() ); }
+
+//---------------------------------------------------------------------------------------------------------------------
+template <typename T, typename A>
+SBP_FORCE_INLINE error read( buffer &b, std::vector<T, A> &value ) SBP_NOEXCEPT
+{
+	size_t numValues = 0;
+	if ( auto err = read_array_length( b, numValues ) )
+		return err;
+
+	value.clear();
+	value.reserve( value.size() + numValues );
+	for ( size_t i = 0; i < numValues; ++i )
+	{
+		if ( auto err = read( b, value.emplace_back() ) )
+			return err;
+	}
+
+	return b.valid();
+}
+#endif
+
+} // namespace sbp::detail
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+namespace sbp {
+
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
-void write(buffer& b, const T& msg) noexcept
+void write( buffer &b, const T &msg ) SBP_NOEXCEPT
 {
-	detail::write(b, detail::destructure(msg));
+	if constexpr ( detail::has_n_members_v<T, 10> )
+	{
+		const auto &[m0, m1, m2, m3, m4, m5, m6, m7, m8, m9] = msg;
+		detail::write_multiple( b, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 9> )
+	{
+		const auto &[m0, m1, m2, m3, m4, m5, m6, m7, m8] = msg;
+		detail::write_multiple( b, m0, m1, m2, m3, m4, m5, m6, m7, m8 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 8> )
+	{
+		const auto &[m0, m1, m2, m3, m4, m5, m6, m7] = msg;
+		detail::write_multiple( b, m0, m1, m2, m3, m4, m5, m6, m7 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 7> )
+	{
+		const auto &[m0, m1, m2, m3, m4, m5, m6] = msg;
+		detail::write_multiple( b, m0, m1, m2, m3, m4, m5, m6 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 6> )
+	{
+		const auto &[m0, m1, m2, m3, m4, m5] = msg;
+		detail::write_multiple( b, m0, m1, m2, m3, m4, m5 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 5> )
+	{
+		const auto &[m0, m1, m2, m3, m4] = msg;
+		detail::write_multiple( b, m0, m1, m2, m3, m4 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 4> )
+	{
+		const auto &[m0, m1, m2, m3] = msg;
+		detail::write_multiple( b, m0, m1, m2, m3 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 3> )
+	{
+		const auto &[m0, m1, m2] = msg;
+		detail::write_multiple( b, m0, m1, m2 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 2> )
+	{
+		const auto &[m0, m1] = msg;
+		detail::write_multiple( b, m0, m1 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 1> )
+	{
+		const auto &[m0] = msg;
+		detail::write_multiple( b, m0 );
+	}
 }
 
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
-error read(buffer& b, T& msg) noexcept
+error read( buffer &b, T &msg ) SBP_NOEXCEPT
 {
-	return detail::read(b, detail::destructure(msg));
+	if constexpr ( detail::has_n_members_v<T, 10> )
+	{
+		auto &[m0, m1, m2, m3, m4, m5, m6, m7, m8, m9] = msg;
+		return detail::read_multiple( b, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 9> )
+	{
+		auto &[m0, m1, m2, m3, m4, m5, m6, m7, m8] = msg;
+		return detail::read_multiple( b, m0, m1, m2, m3, m4, m5, m6, m7, m8 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 8> )
+	{
+		auto &[m0, m1, m2, m3, m4, m5, m6, m7] = msg;
+		return detail::read_multiple( b, m0, m1, m2, m3, m4, m5, m6, m7 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 7> )
+	{
+		auto &[m0, m1, m2, m3, m4, m5, m6] = msg;
+		return detail::read_multiple( b, m0, m1, m2, m3, m4, m5, m6 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 6> )
+	{
+		auto &[m0, m1, m2, m3, m4, m5] = msg;
+		return detail::read_multiple( b, m0, m1, m2, m3, m4, m5 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 5> )
+	{
+		auto &[m0, m1, m2, m3, m4] = msg;
+		return detail::read_multiple( b, m0, m1, m2, m3, m4 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 4> )
+	{
+		auto &[m0, m1, m2, m3] = msg;
+		return detail::read_multiple( b, m0, m1, m2, m3 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 3> )
+	{
+		auto &[m0, m1, m2] = msg;
+		return detail::read_multiple( b, m0, m1, m2 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 2> )
+	{
+		auto &[m0, m1] = msg;
+		return detail::read_multiple( b, m0, m1 );
+	}
+	else if constexpr ( detail::has_n_members_v<T, 1> )
+	{
+		auto &[m0] = msg;
+		return detail::read_multiple( b, m0 );
+	}
+
+	return b.valid();
 }
 
 } // namespace sbp
