@@ -796,27 +796,27 @@ error read_multiple( buffer &b, T &value, Tail &... tail ) SBP_NOEXCEPT
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #if defined(SBP_MSVC)
-	#if defined(_ARRAY_)
+	#if defined(_ARRAY_) && !defined(SBP_STL_ARRAY)
 		#define SBP_STL_ARRAY
 	#endif
 
-	#if defined(_MAP_)
+	#if defined(_MAP_) && !defined(SBP_STL_MAP)
 		#define SBP_STL_MAP
 	#endif
 
-	#if defined(_STRING_)
+	#if defined(_STRING_) && !defined(SBP_STL_STRING)
 		#define SBP_STL_STRING
 	#endif
 
-	#if defined(_STRING_VIEW_)
+	#if defined(_STRING_VIEW_) && !defined(SBP_STL_STRING_VIEW)
 		#define SBP_STL_STRING_VIEW
 	#endif
 
-	#if defined(_UNORDERED_MAP_)
+	#if defined(_UNORDERED_MAP_) && !defined(SBP_STL_UNORDERED_MAP)
 		#define SBP_STL_UNORDERED_MAP
 	#endif
 
-	#if defined(_VECTOR_)
+	#if defined(_VECTOR_) && !defined(SBP_STL_VECTOR)
 		#define SBP_STL_VECTOR
 	#endif
 #endif
