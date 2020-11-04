@@ -48,36 +48,98 @@ d1                      : 16-bit signed integer
 c0 07                   : 1984
 ```
 
-## Basic supported types
+## Supported primitive types
 - `bool`
 - `int8_t`, `int16_t`, `int32_t`, `int64_t`
 - `uint8_t`, `uint16_t`, `uint32_t`, `uint64_t`
 - `float`, `double`
-- `std::string`
 - `const char *`
-- `std::vector`
-- `std::map`
-- `std::unordered_map`
-- `std::array`
+  - to simplify deserialization, raw C-strings are serialized WITH null terminator. This goes against [MessagePack](https://github.com/msgpack/msgpack/blob/master/spec.md) rules and might break interoperability with other libraries. If you do not like this behaviour, use `std::string` or `std::string_view` instead!
 
-## Extended types
-- `sbp::ext`
-- `sbp::bin`
+## Supported STL containers
+Unless you are using MSVC compiler, support for individual STL container types must be manually enabled:
+
+- `std::array`
+  - define `SBP_STL_ARRAY`
+- `std::string`
+  - define `SBP_STL_STRING`
+- `std::string_view`
+  - define `SBP_STL_STRING_VIEW`
+- `std::vector`
+  - define `SBP_STL_VECTOR`
+- `std::map`
+  - define `SBP_STL_MAP`
+- `std::unordered_map`
+  - define `SBP_STL_UNORDERED_MAP`
 
 ## Adding custom types
-_... TODO_
+```cpp
+struct Person final
+{
+	std::string name;
+	int age;
+	float weight;
+};
 
-## Using `sbp::buffer`
-_... TODO_
+namespace sbp::detail {
+
+void write(buffer &b, const Person &value) SBP_NOEXCEPT
+{
+	write_multiple(b, name, age, weight);
+}
+
+error read(buffer &b, Person &value) SBP_NOEXCEPT
+{
+	return read_multiple(b, name, age, weight);
+}
+
+} // namespace sbp::detail
+
+struct NuclearFamily final
+{
+	std::array<Person, 2> parents;
+	std::vector<Person> children;
+};
+
+NuclearFamily fam = ...;
+
+sbp::buffer buff;
+sbp::write(buff, fam);
+```
+
+Simple POD types can be stored in [ext format](https://github.com/msgpack/msgpack/blob/master/spec.md#ext-format-family), which is basically just a byte type ID followed by binary data. Use `SBP_EXTENSION` macro to automatically generate code of `sbp::detail::write` and `sbp::detail::read` functions for your types:
+```cpp
+struct Vector2D final { float x, y; };
+struct Vector3D final { float x, y, z; };
+struct Vector4D final { float x, y, z, w; };
+
+SBP_EXTENSION(Vector2D, 1)
+SBP_EXTENSION(Vector3D, 2)
+SBP_EXTENSION(Vector4D, 3)
+
+struct Mesh final
+{
+	std::string name;
+	Vector4D diffuseColor;
+	Vector3D aabbMin, aabbMax;
+	std::vector<Vector3D> vertices;
+	std::vector<Vector2D> texCoords;
+};
+
+Mesh m = ...;
+
+sbp::buffer buff;
+sbp::write(buff, m);
+```
 
 ## Limitations
 - library does not care about endianness
 - no STL streams or allocators support (but feel free to roll your own `sbp::buffer` implementation)
 - error reporting is very primitive, no exceptions used
-- inheritance does not work, you must use composition instead:
-- C-style arrays do not work, you must use `std::array` instead:
+- inheritance does not work, use composition instead
+- C-style arrays do not work, use `std::array` instead
 - if you really want to use inheritance (or even C-style arrays), you have to provide template specializations for `std::tuple_size`, `std::tuple_element` and `std::get`
 
 ## Credits
-- structured binding code originally taken from [avakar/destructure](https://github.com/avakar/destructure)
+- structured binding code idea originally taken from [avakar/destructure](https://github.com/avakar/destructure)
 - binary serialization follows [MessagePack](https://github.com/msgpack/msgpack/blob/master/spec.md) format (to some extent)
