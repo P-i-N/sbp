@@ -28,7 +28,7 @@
 #endif
 
 #include <cstdint>
-#include <utility>
+#include <cstring>
 #include <type_traits>
 
 namespace sbp {
@@ -260,8 +260,6 @@ struct has_n_members < T &&, In > : has_n_members<T, In> { };
 template <typename T, size_t N>
 constexpr bool has_n_members_v = has_n_members<T, std::make_index_sequence<N>>::value;
 
-template <typename T> using nl = std::numeric_limits<T>;
-
 //---------------------------------------------------------------------------------------------------------------------
 template <typename T>
 SBP_FORCE_INLINE void write_int( buffer &b, T value ) SBP_NOEXCEPT
@@ -281,7 +279,7 @@ SBP_FORCE_INLINE void write_int( buffer &b, T value ) SBP_NOEXCEPT
 			b.write( int8_t( value ) );
 		else if ( value < 0 && value >= -32 )
 			b.write( int8_t( value ) );
-		else if ( value <= 127 && value >= nl<int8_t>::min() )
+		else if ( value <= 127 && value >= -128 )
 			b.write( 0xd0u, int8_t( value ) );
 		else
 			b.write( 0xd1u, value );
@@ -292,9 +290,9 @@ SBP_FORCE_INLINE void write_int( buffer &b, T value ) SBP_NOEXCEPT
 			b.write( int8_t( value ) );
 		else if ( value < 0 && value >= -32 )
 			b.write( int8_t( value ) );
-		else if ( value <= 127 && value >= nl<int8_t>::min() )
+		else if ( value <= 127 && value >= -128 )
 			b.write( 0xd0u, int8_t( value ) );
-		else if ( value <= nl<int16_t>::max() && value >= nl<int16_t>::min() )
+		else if ( value <= 32767 && value >= -32768 )
 			b.write( 0xd1u, int16_t( value ) );
 		else
 			b.write( 0xd2u, value );
@@ -305,11 +303,11 @@ SBP_FORCE_INLINE void write_int( buffer &b, T value ) SBP_NOEXCEPT
 			b.write( int8_t( value ) );
 		else if ( value < 0 && value >= -32 )
 			b.write( int8_t( value ) );
-		else if ( value <= 127 && value >= nl<int8_t>::min() )
+		else if ( value <= 127 && value >= -128 )
 			b.write( 0xd0u, int8_t( value ) );
-		else if ( value <= nl<int16_t>::max() && value >= nl<int16_t>::min() )
+		else if ( value <= 32767 && value >= -32768 )
 			b.write( 0xd1u, int16_t( value ) );
-		else if ( value <= nl<int32_t>::max() && value >= nl<int32_t>::min() )
+		else if ( value <= 2147483647ll && value >= -2147483648ll )
 			b.write( 0xd2u, int32_t( value ) );
 		else
 			b.write( 0xd3u, value );
@@ -337,7 +335,7 @@ SBP_FORCE_INLINE void write_uint( buffer &b, T value ) SBP_NOEXCEPT
 	{
 		if ( value <= 127 )
 			b.write( uint8_t( value ) );
-		else if ( value <= nl<uint8_t>::max() )
+		else if ( value <= 255 )
 			b.write( 0xccu, uint8_t( value ) );
 		else
 			b.write( 0xcdu, value );
@@ -346,9 +344,9 @@ SBP_FORCE_INLINE void write_uint( buffer &b, T value ) SBP_NOEXCEPT
 	{
 		if ( value <= 127 )
 			b.write( uint8_t( value ) );
-		else if ( value <= nl<uint8_t>::max() )
+		else if ( value <= 255 )
 			b.write( 0xccu, uint8_t( value ) );
-		else if ( value <= nl<uint16_t>::max() )
+		else if ( value <= 65535 )
 			b.write( 0xcdu, uint16_t( value ) );
 		else
 			b.write( 0xceu, value );
@@ -357,11 +355,11 @@ SBP_FORCE_INLINE void write_uint( buffer &b, T value ) SBP_NOEXCEPT
 	{
 		if ( value <= 127 )
 			b.write( uint8_t( value ) );
-		else if ( value <= nl<uint8_t>::max() )
+		else if ( value <= 255 )
 			b.write( 0xccu, uint8_t( value ) );
-		else if ( value <= nl<uint16_t>::max() )
+		else if ( value <= 65535 )
 			b.write( 0xcdu, uint16_t( value ) );
-		else if ( value <= nl<uint32_t>::max() )
+		else if ( value <= 4294967295 )
 			b.write( 0xceu, uint32_t( value ) );
 		else
 			b.write( 0xcfu, value );
@@ -379,9 +377,9 @@ SBP_FORCE_INLINE void write_str( buffer &b, const char *value, size_t length ) S
 {
 	if ( length <= 31 )
 		b.write( uint8_t( uint8_t( 0b10100000u ) | static_cast<uint8_t>( length ) ) );
-	else if ( length <= nl<uint8_t>::max() )
+	else if ( length <= 255 )
 		b.write( 0xd9u, uint8_t( length ) );
-	else if ( length <= nl<uint16_t>::max() )
+	else if ( length <= 65535 )
 		b.write( 0xdau, uint16_t( length ) );
 	else
 		b.write( 0xdbu, uint32_t( length ) );
@@ -404,7 +402,7 @@ SBP_FORCE_INLINE void write_array( buffer &b, const T *values, size_t numValues 
 {
 	if ( numValues <= 15 )
 		b.write( uint8_t( uint8_t( 0b10010000u ) | static_cast<uint8_t>( numValues ) ) );
-	else if ( numValues <= nl<uint16_t>::max() )
+	else if ( numValues <= 65535 )
 		b.write( 0xdcu, uint16_t( numValues ) );
 	else
 		b.write( 0xddu, uint32_t( numValues ) );
@@ -419,7 +417,7 @@ SBP_FORCE_INLINE void write_array_fixed( buffer &b, const T *values ) SBP_NOEXCE
 {
 	if constexpr ( NumValues <= 15 )
 		b.write( uint8_t( uint8_t( 0b10010000u ) | static_cast<uint8_t>( NumValues ) ) );
-	else if constexpr ( NumValues <= nl<uint16_t>::max() )
+	else if constexpr ( NumValues <= 65535 )
 		b.write( 0xdcu, uint16_t( NumValues ) );
 	else
 		b.write( 0xddu, uint32_t( NumValues ) );
@@ -455,9 +453,9 @@ SBP_FORCE_INLINE void write_map( buffer &b, const T &value ) SBP_NOEXCEPT
 //---------------------------------------------------------------------------------------------------------------------
 SBP_FORCE_INLINE void write_bin( buffer &b, const void *data, size_t numBytes ) SBP_NOEXCEPT
 {
-	if ( numBytes <= nl<uint8_t>::max() )
+	if ( numBytes <= 255 )
 		b.write( 0xc4u, uint8_t( numBytes ) );
-	else if ( numBytes <= nl<uint16_t>::max() )
+	else if ( numBytes <= 65535 )
 		b.write( 0xc5u, uint16_t( numBytes ) );
 	else
 		b.write( 0xc6u, uint32_t( numBytes ) );
@@ -479,12 +477,12 @@ SBP_FORCE_INLINE void write_ext( buffer &b, int8_t type, const void *data ) SBP_
 		b.write( 0xd7u, type );
 	else if constexpr ( NumBytes == 16 )
 		b.write( 0xd8u, type );
-	else if constexpr ( NumBytes <= nl<uint8_t>::max() )
+	else if constexpr ( NumBytes <= 255 )
 	{
 		b.write( 0xc7u, uint8_t( NumBytes ) );
 		b.write( type );
 	}
-	else if constexpr ( NumBytes <= nl<uint16_t>::max() )
+	else if constexpr ( NumBytes <= 65535 )
 	{
 		b.write( 0xc8u, uint16_t( NumBytes ) );
 		b.write( type );
@@ -511,12 +509,12 @@ SBP_FORCE_INLINE void write_ext( buffer &b, int8_t type, const void *data, size_
 		b.write( 0xd7u, type );
 	else if ( numBytes == 16 )
 		b.write( 0xd8u, type );
-	else if ( numBytes <= nl<uint8_t>::max() )
+	else if ( numBytes <= 255 )
 	{
 		b.write( 0xc7u, uint8_t( numBytes ) );
 		b.write( type );
 	}
-	else if ( numBytes <= nl<uint16_t>::max() )
+	else if ( numBytes <= 65535 )
 	{
 		b.write( 0xc8u, uint16_t( numBytes ) );
 		b.write( type );
@@ -750,12 +748,12 @@ SBP_FORCE_INLINE error read_ext( buffer &b, const void *&value ) SBP_NOEXCEPT
 		if ( header != 0xd8u )
 			return { error::corrupted_data };
 	}
-	else if constexpr ( NumBytes <= nl<uint8_t>::max() )
+	else if constexpr ( NumBytes <= 255 )
 	{
 		if ( header != 0xc7u || b.read<uint8_t>() != NumBytes )
 			return { error::corrupted_data };
 	}
-	else if constexpr ( NumBytes <= nl<uint16_t>::max() )
+	else if constexpr ( NumBytes <= 65535 )
 	{
 		if ( header != 0xc8u || b.read<uint16_t>() != NumBytes )
 			return { error::corrupted_data };
